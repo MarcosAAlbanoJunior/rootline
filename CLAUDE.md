@@ -19,8 +19,14 @@ go work init . ./hook ./demo-app
 - `hook/` e `demo-app/`, por módulo: `cd hook && GOWORK=off CGO_ENABLED=0 go build ./... && GOWORK=off go test ./...` (idem em `demo-app/`).
 - e2e (precisa de Docker): `go test -tags e2e ./internal/recording/`
 - Formatação (etapa do gate): `test -z "$(gofmt -l .)"`; corrija com `gofmt -w .`
-- Depguard (direção das dependências do domínio): `golangci-lint run`
-- Gate do specgate (`specgate.config`): build + `go test ./...` + gofmt + `go vet` + depguard
+- Lint (depguard, errcheck, govet, ineffassign, staticcheck, unused; golangci-lint v2.15.0, a mesma
+  versão do CI): `golangci-lint run` na raiz e `GOWORK=off golangci-lint run` em `hook/` e `demo-app/`.
+  `//nolint` só com o linter nomeado e o motivo: `//nolint:errcheck // <motivo>`.
+- Gate do specgate (`specgate.config`): build + `go test ./...` + gofmt + `go vet` + lint dos três módulos.
+- CI (`.github/workflows/ci.yml`): `check` (o mesmo que o gate, nos três módulos), `cross` (compilação
+  para linux/darwin/windows), `placar` (grava o n1-basic com Docker e roda `score` sem `--update`; desvio
+  temporário do ADR-0008, issue #5) e `e2e` (só na `main` e sob demanda). Actions fixadas por SHA;
+  o Dependabot atualiza.
 
 ## Arquitetura
 
