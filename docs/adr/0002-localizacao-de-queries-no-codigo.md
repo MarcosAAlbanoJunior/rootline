@@ -1,130 +1,105 @@
 ---
 id: ADR-0002
 title: Localizar a origem de queries pela pilha da aplicação capturada no span de banco
-status: Proposto
+status: Aceito
 date: 2026-11-22
-summary: O wrapper de banco anexa ao span os frames da aplicação (code.*); o índice (AST) acha o frame cujo ponto de chamada está dentro de um loop; sem a captura, cai para a rota HTTP → handler, como localização aproximada. Pendente de spike em Go.
-modules: [dominio, indice, demo-app, eval]
+summary: Hook de chamador (multitracer do pgx) grava em rootline.app_stack os frames do módulo principal e marca a fase do span (query/prepare); o índice (AST) acha o primeiro frame dentro de um loop; sem hook, rota → handler (aproximada). Spike confirmou 4/4 cenários; custo ~3,6µs/query (~1,9µs com cache).
+modules: [hook, dominio, indice, demo-app, eval]
 ---
 
 # 0002. Localizar a origem de queries pela pilha da aplicação capturada no span de banco
 
-> Histórico: a primeira versão deste ADR, para Java (agente OTel, Spring Data, Hibernate e
-> extensão de stack trace), nunca foi aceita e foi reescrita depois do ADR-0003 (Go).
+> Histórico: a primeira versão deste ADR, para Java, nunca foi aceita e foi reescrita depois da
+> mudança para Go (ADR-0003, hoje ADR-0007). Aceito em 22/11/2026 com base no
+> [spike](../spikes/2026-11-22-adr-0002-evidencias.md).
 
 ## Contexto
 
 O Resultado precisa apontar a função e a linha responsáveis pela regressão. Em Go não há agente
-automático: a instrumentação padrão é por biblioteca. Fatos verificados na pesquisa
-`docs/research/2026-11-22-instrumentacao-go.md`:
+automático: a instrumentação padrão é por biblioteca (otelhttp, otelpgx). Nenhum wrapper de banco
+registra de onde a query foi chamada (pesquisa `docs/research/2026-11-22-instrumentacao-go.md`).
 
-- **otelhttp** cria o span do servidor HTTP com `http.route`.
-- **exaring/otelpgx** (pgx nativo) cria os spans das queries com o SQL. Não tem opção de
-  localização no código nem de atributos dinâmicos por span; para isso é preciso um
-  `pgx.QueryTracer` próprio que embrulhe o dele.
-- **XSAM/otelsql** (`database/sql`) tem `AttributesGetter`, chamado a cada span criado, onde dá
-  para adicionar atributos.
-- **OBI (eBPF)** é estável e rastreia `database/sql` e pgx sem mudar código, mas não produz
-  localização no código e exige Linux 5.8+, BTF e privilégios.
-- `code.function.name`, `code.file.path` e `code.line.number` são estáveis na semconv.
-
-**Ponto crítico:** no N+1, a função que executa a query (ex.: `repo.FindItems`) não é onde está o
-bug. O bug é o loop que a chama, muitas vezes em outra camada. Um único frame, o chamador
-imediato, aponta o lugar errado.
+**Ponto crítico:** no N+1, a função que executa a query não é onde está o bug. O bug é o loop que
+a chama, muitas vezes em outra camada. Um único frame, o chamador imediato, aponta o lugar errado.
 
 ## Decisão
 
-**O que o Rootline exige do serviço analisado:** OTel Go SDK, otelhttp, o wrapper de banco
-padrão e um **hook de captura do chamador**. É um pacote pequeno publicado pelo Rootline, com
-duas formas: um `pgx.QueryTracer` que embrulha o do otelpgx e uma função pronta para o
-`AttributesGetter` do otelsql. O hook vale igualmente para todas as queries. Continua proibido
-criar spans manuais onde sabemos que está o bug.
+**O que o Rootline exige do serviço analisado:** OTel Go SDK, otelhttp, otelpgx e o **hook de
+chamador**, um pacote pequeno do módulo `hook/`. O hook vale igualmente para todas as queries.
+Continua proibido criar spans manuais onde sabemos que está o bug. O **OBI (eBPF)** fica registrado
+como fonte complementar futura de spans; não substitui o hook porque não fornece localização.
 
-**Banco no demo-app:** pgx nativo, com o hook compondo com o tracer do otelpgx. Antes de
-escrever um embrulho do zero, o spike verifica se o pgx já oferece composição de tracers.
-Plano B: `database/sql` via `pgx/stdlib` + otelsql com `AttributesGetter`.
+**Composição:** o hook é um `pgx.QueryTracer` e `pgx.PrepareTracer` colocado **depois do otelpgx**
+no `github.com/jackc/pgx/v5/multitracer`, que repassa o `ctx` em ordem; o hook enriquece o span
+que o otelpgx criou. Sem embrulho próprio. Plano B (se um dia for preciso): `database/sql` via
+`pgx/stdlib` + otelsql com `AttributesGetter`.
 
-**O hook** usa `runtime.Callers` e anexa ao span de banco os primeiros frames que pertencem ao
-módulo da aplicação. O módulo vem de `debug.ReadBuildInfo` ou de configuração; frames da stdlib,
-do pgx e do OTel ficam fora. O mais interno vai em `code.function.name`, `code.file.path` e
-`code.line.number`. A pilha curta da aplicação vai em um atributo próprio, com **profundidade
-máxima fixa (8 frames)** e **tamanho de atributo limitado**.
+**O que o hook grava em cada span de banco**
+- `code.function.name`, `code.file.path` e `code.line.number` (estáveis na semconv) do frame mais
+  interno da aplicação, com caminho relativo ao módulo (ADR-0011).
+- `rootline.app_stack`: lista de strings `função arquivo:linha`, só frames do módulo principal,
+  **no máximo 8 frames e 2048 bytes**. Não usa `code.stacktrace`, que é estável mas definido como
+  string no formato natural do runtime (caminhos absolutos, sem filtro).
+- `rootline.module.path`: caminho do módulo principal.
+- `rootline.db.phase`: `query` ou `prepare`. O otelpgx cria spans de prepare com o mesmo nome e o
+  mesmo SQL da query; sem essa marca, eles inflariam a contagem de repetições.
 
-**OBI (eBPF)** fica registrado como fonte complementar futura de spans, não descartado. Ele não
-substitui o hook porque não fornece localização.
+**Cache de resolução por PC**, ligado por padrão, guardando a **expansão completa de inlining** de
+cada PC (um PC de função inlinada corresponde a vários frames; guardar só o primeiro pode perder o
+frame do loop).
 
 **Localização em dois níveis**, com a confiança marcada no Resultado:
-
 1. **Pilha da aplicação no span de banco.** As linhas vêm dos frames e correspondem ao SHA em
-   execução. Para N+1, o índice (AST) percorre os frames do mais interno para fora e escolhe o
-   primeiro cujo ponto de chamada está dentro de um `for`/`range`. Isso também cobre o
-   goroutine/errgroup: a pilha da goroutine termina na closure, e o índice verifica se o literal
-   da função está dentro de um loop. Confiança alta.
-   Com range-over-func (`for x := range seq`), o corpo do loop vira uma função sintética chamada
-   pelo iterador a cada iteração. O índice precisa reconhecer que esse frame pertence ao corpo
-   do `for range` da função que o contém, e que esse corpo roda a cada iteração.
-2. **Fallback, sem o hook:** `http.route` do span do servidor → índice localiza o registro da
-   rota (`mux.HandleFunc("GET /orders", ...)`) → função handler, marcada como "localização
-   aproximada" (função, sem linha).
+   execução. O índice (AST) percorre os frames do mais interno para fora e escolhe o primeiro cujo
+   ponto de chamada está dentro do corpo de um `for`/`range`. Isso cobre, sem caso especial:
+   - goroutines e errgroup: a pilha termina na closure, cuja linha está dentro do loop que a lança;
+   - range-over-func: o corpo do loop aparece como função sintética `...-range1`, com a linha
+     dentro do corpo do `for range`.
+2. **Fallback, sem o hook:** rota da operação de entrada (ADR-0013) → índice localiza o registro
+   da rota → função handler, marcada como "localização aproximada" (função, sem linha).
 
-**Localizar não é classificar.** A regra do frame dentro de um loop só diz onde está o código
-responsável. Quem decide que algo é N+1 é o detector, pela evidência do trace: a mesma query
-normalizada repetida sob o mesmo span pai, com parâmetros variando. Uma query repetida dentro de
-um loop não é N+1 por si só, e o distrator de paginação existe para provar isso.
+**Localizar não é classificar.** A regra do loop só diz onde está o código responsável. Quem decide
+que algo é N+1 é o detector, pela evidência do trace (critério na spec do detector, com os sinais:
+linhas por query, proporção com o "+1" e padrão dos parâmetros). O detector conta só spans com
+`rootline.db.phase = query`. Sem o hook, usa uma heurística (tem `pgx.prepare_stmt.name` e não
+tem `pgx.rows_affected` → prepare), e o Resultado marca a confiança como menor. O otelpgx v0.13.0
+não tem opção para desligar spans de prepare.
 
-**Variações de N+1 da avaliação** (substituem o lazy loading do Java):
-- N+1 escondido atrás de um helper em outra camada (o loop no service, a query no repository);
-- N+1 dentro de goroutines lançadas num loop (errgroup);
-- N+1 dentro de um iterador com range-over-func;
-- **distrator:** queries repetidas legítimas (paginação em lotes fixos), para medir falso positivo.
+**Variações de N+1 da avaliação:** helper em outra camada; goroutines lançadas num loop
+(errgroup); iterador com range-over-func; e o distrator de paginação em lotes fixos.
 
-## Spike que decide este ADR (timebox: 1 dia)
+## Evidências do spike
 
-Demo-app Go mínimo (net/http + pgx), com N+1 explícito, N+1 atrás de helper, N+1 em errgroup e
-N+1 em iterador range-over-func, cada um com e sem o hook. Verificar:
-
-- spans e atributos realmente emitidos pelo otelhttp e pelo otelpgx em cada cenário;
-- se o pgx já oferece composição de tracers; senão, se um embrulho de `pgx.QueryTracer` consegue
-  enriquecer o span criado pelo otelpgx, e em que ordem;
-- se a regra "primeiro frame com o ponto de chamada dentro de um loop" acerta nos quatro cenários,
-  inclusive como aparecem os frames do corpo de um range-over-func;
-- **o custo do hook, medido em separado:** capturar a pilha (`runtime.Callers`) e resolver os
-  frames (nome de função e linha), por query, além da latência p50/p95 do demo-app com e sem o hook;
-- o nome a usar para a pilha (`code.stacktrace`, se o status na semconv permitir, ou um atributo `rootline.*`).
-
-**Entregável:** documento com os spans e atributos reais de cada cenário, anexado a este ADR como evidência.
+[`docs/spikes/2026-11-22-adr-0002-evidencias.md`](../spikes/2026-11-22-adr-0002-evidencias.md),
+com código e dados brutos na branch `spike/adr-0002`:
+- a regra acertou os 4 cenários (explicit, helper, errgroup, rangefunc), e a query "+1" não apontou loop;
+- `code.file.path` idêntico com e sem `-trimpath`;
+- custo por query: captura ~0,91 µs, resolução ~1,95 µs (~0,23 µs com cache), atributos ~0,75 µs;
+- `pgx.rows_affected` presente em todo span de query.
 
 ## Alternativas consideradas
 
-- **Só as bibliotecas padrão, sem hook.** Zero esforço extra no alvo, mas toda localização cai
-  no nível 2 (só o handler).
-- **OBI (eBPF), sem mudar código.** Estável e zero-code, mas sem localização no código, e com
-  exigências de kernel e privilégio. Pode entrar depois como fonte de spans, não de localização.
-- **Capturar só o chamador imediato.** Mais barato, mas aponta a função que faz a query, não o
-  loop que a multiplica.
-- **Spans manuais nas funções da aplicação.** Proibido: instrumentaria exatamente onde sabemos
-  que está o bug.
+- **Só bibliotecas padrão, sem hook.** Toda localização cai no nível 2 (só o handler).
+- **OBI (eBPF).** Estável e zero-code, mas sem localização no código e com exigências de kernel e privilégio.
+- **Só o chamador imediato.** Aponta a função que faz a query, não o loop que a multiplica.
+- **`code.stacktrace`.** Nome estável, mas formato diferente do que o Rootline precisa.
+- **Embrulho próprio de `pgx.QueryTracer`.** Desnecessário: o pgx já tem `multitracer`.
+- **Spans manuais nas funções da aplicação.** Proibido.
 
 ## Consequências
 
-- O Rootline publica e mantém o pacote do hook, com testes e documentação de instalação.
-- O índice precisa saber, para uma linha, se ela está dentro de um loop e em qual função ou
-  literal de função. A pergunta 7 (qual índice) precisa considerar isso.
-- **A avaliação reporta acerto com e sem o hook, mais o overhead medido.**
-- Risco: custo do hook em serviços com muitas queries. Mitigações a medir: a profundidade máxima
-  (já fixada em 8), um cache de resolução por PC (no N+1 os mesmos PCs se repetem) e amostragem.
-- O critério de classificação de N+1 pertence ao detector e é especificado na spec dele, não aqui.
+- O Rootline publica e mantém o módulo `hook/`, com testes e documentação de instalação.
+- O índice precisa responder se uma linha está dentro de um corpo de loop.
+- A avaliação reporta acerto com e sem o hook, e o overhead medido na gravação (ADR-0008). O spike
+  mostrou que medir overhead de forma confiável exige mais rodadas e ambiente controlado: a mesma
+  configuração variou ±10% entre rodadas.
+- Risco: custo do hook em serviços com muitas queries. Mitigações: profundidade e tamanho
+  limitados, cache por PC; amostragem se a medição na gravação mostrar necessidade.
 
 ## Como validar
 
-- Documento do spike anexado.
-- Testes unitários da escolha de frame e da regra do loop, com pilhas e ASTs em fixtures.
-- Avaliação: acerto de localização por nível e por variação, com e sem o hook, mais a latência p50/p95.
-
-## Questões em aberto
-
-- O pgx compõe tracers nativamente? Senão, o embrulho enriquece o span do otelpgx de forma confiável? (spike)
-- Qual é o overhead do hook por query, separado em captura e resolução? (spike)
-- Como os frames do corpo de range-over-func aparecem na pilha? (spike)
-- Limite exato do tamanho do atributo da pilha. (spike)
-- Nome do atributo da pilha (spike, com a semconv).
+- Testes do hook: derivação de caminho (closures, range-over-func, genéricos, `main`, `/v2`, módulo
+  com prefixo parecido, código de terceiros); limites de frames e bytes; cache com função inlinada;
+  fase `query`/`prepare`.
+- Testes do índice: regra do loop com pilhas e arquivos em fixtures, incluindo errgroup e range-over-func.
+- Avaliação: acerto de localização por nível e por variação, com e sem o hook.
