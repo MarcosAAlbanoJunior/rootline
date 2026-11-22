@@ -1,0 +1,5 @@
+bin/
+out/
+specs/
+go.work
+go.work.sum

@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        domain:
+          files:
+            - "**/internal/trace/**"
+            - "**/internal/analysis/**"
+            - "**/internal/detector/**"
+            - "**/internal/correlation/**"
+            - "**/internal/evaluation/**"
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/MarcosAAlbanoJunior/rootline/internal/trace
+            - github.com/MarcosAAlbanoJunior/rootline/internal/analysis
+            - github.com/MarcosAAlbanoJunior/rootline/internal/detector
+            - github.com/MarcosAAlbanoJunior/rootline/internal/correlation
+            - github.com/MarcosAAlbanoJunior/rootline/internal/evaluation
+          deny:
+            - pkg: github.com/MarcosAAlbanoJunior/rootline/internal/adapter
+              desc: domínio não importa adapters
+            - pkg: github.com/MarcosAAlbanoJunior/rootline/internal/fixture
+              desc: domínio não importa fixture
+            - pkg: github.com/MarcosAAlbanoJunior/rootline/internal/recording
+              desc: domínio não importa recording
