@@ -1,0 +1,23 @@
+goos: linux
+goarch: amd64
+cpu: AMD Ryzen 7 5700                               
+BenchmarkCapture-16          	 1315772	       910.2 ns/op	     512 B/op	       1 allocs/op
+BenchmarkCapture-16          	 1303460	       916.9 ns/op	     512 B/op	       1 allocs/op
+BenchmarkCapture-16          	 1320112	       909.6 ns/op	     512 B/op	       1 allocs/op
+BenchmarkCapture-16          	 1278828	       933.6 ns/op	     512 B/op	       1 allocs/op
+BenchmarkCapture-16          	 1311678	       914.5 ns/op	     512 B/op	       1 allocs/op
+BenchmarkResolve-16          	  621720	      1938 ns/op	    1320 B/op	      18 allocs/op
+BenchmarkResolve-16          	  624559	      1948 ns/op	    1320 B/op	      18 allocs/op
+BenchmarkResolve-16          	  598305	      1952 ns/op	    1320 B/op	      18 allocs/op
+BenchmarkResolve-16          	  620714	      1985 ns/op	    1320 B/op	      18 allocs/op
+BenchmarkResolve-16          	  609685	      1939 ns/op	    1320 B/op	      18 allocs/op
+BenchmarkResolveCached-16    	 5075727	       232.4 ns/op	     320 B/op	       1 allocs/op
+BenchmarkResolveCached-16    	 5218419	       236.2 ns/op	     320 B/op	       1 allocs/op
+BenchmarkResolveCached-16    	 5259100	       229.2 ns/op	     320 B/op	       1 allocs/op
+BenchmarkResolveCached-16    	 5105614	       231.3 ns/op	     320 B/op	       1 allocs/op
+BenchmarkResolveCached-16    	 4844157	       239.8 ns/op	     320 B/op	       1 allocs/op
+BenchmarkAttributes-16       	 1636615	       731.7 ns/op	    1216 B/op	      12 allocs/op
+BenchmarkAttributes-16       	 1592889	       771.2 ns/op	    1216 B/op	      12 allocs/op
+BenchmarkAttributes-16       	 1549615	       758.3 ns/op	    1216 B/op	      12 allocs/op
+BenchmarkAttributes-16       	 1628678	       734.9 ns/op	    1216 B/op	      12 allocs/op
+BenchmarkAttributes-16       	 1647000	       757.5 ns/op	    1216 B/op	      12 allocs/op

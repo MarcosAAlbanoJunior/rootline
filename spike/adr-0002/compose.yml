@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:19.0
+    environment:
+      POSTGRES_PASSWORD: spike
+      POSTGRES_DB: shop
+    ports: ["55432:5432"]
+    volumes: ["./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro,Z"]
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otelcol.yaml:/etc/otelcol/config.yaml:ro,Z
+      - ./out:/out:Z
+    ports: ["54318:4318"]

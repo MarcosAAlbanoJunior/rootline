@@ -1,0 +1,183 @@
+
+## route "GET /customers/{id}/orders/errgroup" (5 traces)
+
+### sample trace inventory
+- span "GET /customers/{id}/orders/errgroup" kind=2 (root) scope=go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@0.72.0
+    server.address = localhost
+    http.request.method = GET
+    url.scheme = http
+    server.port = 58080
+    network.peer.address = 127.0.0.1
+    network.peer.port = 56616
+    user_agent.original = Go-http-client/1.1
+    client.address = 127.0.0.1
+    url.path = /customers/2/orders/errgroup
+    network.protocol.version = 1.1
+    http.response.body.size = 1202
+    http.response.status_code = 200
+- span "SELECT" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    pgx.prepare_stmt.name = stmtcache_512b3e76b28b82019ddcbb8e92990c62bac4aa329c172c2a
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+    db.operation.name = SELECT
+    db.query.text = SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id
+- span "pool.acquire" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+
+### ADR-0002 rule over all traces of the route
+-    50 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → frame 2/3 `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/service.(*Service).Errgroup.func1 app/service/service.go:48` (inside loop at lines 46-57)
+-     5 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no frame inside a loop (stack depth 3, innermost `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).OrdersByCustomer app/repo/repo.go:24`)
+-     3 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → no app stack (hook off?)
+-     2 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no app stack (hook off?)
+
+DB spans per trace: min=11 max=14
+
+## route "GET /customers/{id}/orders/explicit" (5 traces)
+
+### sample trace inventory
+- span "GET /customers/{id}/orders/explicit" kind=2 (root) scope=go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@0.72.0
+    server.address = localhost
+    http.request.method = GET
+    url.scheme = http
+    server.port = 58080
+    network.peer.address = 127.0.0.1
+    network.peer.port = 56616
+    user_agent.original = Go-http-client/1.1
+    client.address = 127.0.0.1
+    url.path = /customers/3/orders/explicit
+    network.protocol.version = 1.1
+    http.response.body.size = 1202
+    http.response.status_code = 200
+- span "pool.acquire" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+- span "SELECT" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+    db.query.text = SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id
+    db.operation.name = SELECT
+    code.function.name = main.main.func2
+    code.file.path = app/main.go
+    code.line.number = 73
+    rootline.module.path = github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002
+    rootline.app_stack = [main.main.func2 app/main.go:73]
+    pgx.rows_affected = 3
+
+### ADR-0002 rule over all traces of the route
+-    50 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → frame 0/1 `main.main.func2 app/main.go:73` (inside loop at lines 72-84)
+-     5 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no frame inside a loop (stack depth 2, innermost `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).OrdersByCustomer app/repo/repo.go:24`)
+
+DB spans per trace: min=11 max=11
+
+## route "GET /customers/{id}/orders/helper" (6 traces)
+
+### sample trace inventory
+- span "GET /customers/{id}/orders/helper" kind=2 (root) scope=go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@0.72.0
+    server.address = localhost
+    http.request.method = GET
+    url.scheme = http
+    server.port = 58080
+    network.peer.address = 127.0.0.1
+    network.peer.port = 56616
+    user_agent.original = Go-http-client/1.1
+    client.address = 127.0.0.1
+    url.path = /customers/5/orders/helper
+    network.protocol.version = 1.1
+    http.response.body.size = 1202
+    http.response.status_code = 200
+- span "pool.acquire" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+- span "SELECT" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+    db.query.text = SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id
+    db.operation.name = SELECT
+    code.function.name = github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.queryItems
+    code.file.path = app/repo/repo.go
+    code.line.number = 63
+    rootline.module.path = github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002
+    rootline.app_stack = [github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.queryItems app/repo/repo.go:63 | github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).ItemsByOrder app/repo/repo.go:59 | github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/service.(*Service).Helper app/service/service.go:27 | main.serve.func1 app/main.go:105]
+    pgx.rows_affected = 3
+
+### ADR-0002 rule over all traces of the route
+-    60 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → frame 2/4 `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/service.(*Service).Helper app/service/service.go:27` (inside loop at lines 26-32)
+-     6 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no frame inside a loop (stack depth 3, innermost `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).OrdersByCustomer app/repo/repo.go:24`)
+-     1 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no app stack (hook off?)
+-     1 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → no app stack (hook off?)
+
+DB spans per trace: min=11 max=13
+
+## route "GET /customers/{id}/orders/rangefunc" (5 traces)
+
+### sample trace inventory
+- span "GET /customers/{id}/orders/rangefunc" kind=2 (root) scope=go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@0.72.0
+    server.address = localhost
+    http.request.method = GET
+    url.scheme = http
+    server.port = 58080
+    network.peer.address = 127.0.0.1
+    network.peer.port = 56616
+    user_agent.original = Go-http-client/1.1
+    client.address = 127.0.0.1
+    url.path = /customers/5/orders/rangefunc
+    network.protocol.version = 1.1
+    http.response.body.size = 1202
+    http.response.status_code = 200
+- span "pool.acquire" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+- span "SELECT" kind=3 (child) scope=github.com/exaring/otelpgx@v0.13.0
+    db.system.name = postgresql
+    server.address = localhost
+    server.port = 55432
+    user.name = postgres
+    db.namespace = shop
+    db.query.text = SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id
+    db.operation.name = SELECT
+    code.function.name = github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.queryItems
+    code.file.path = app/repo/repo.go
+    code.line.number = 63
+    rootline.module.path = github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002
+    rootline.app_stack = [github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.queryItems app/repo/repo.go:63 | github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).ItemsByOrder app/repo/repo.go:59 | github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/service.(*Service).RangeFunc-range1 app/service/service.go:68 | github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).…
+    pgx.rows_affected = 3
+
+### ADR-0002 rule over all traces of the route
+-    50 × `SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`
+  → frame 2/6 `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/service.(*Service).RangeFunc-range1 app/service/service.go:68` (inside loop at lines 64-73)
+-     5 × `SELECT id, total_cents FROM orders WHERE customer_id = $1 ORDER BY id`
+  → no frame inside a loop (stack depth 4, innermost `github.com/MarcosAAlbanoJunior/rootline/spike/adr-0002/app/repo.(*Repo).OrdersByCustomer app/repo/repo.go:24`)
+
+DB spans per trace: min=11 max=11
