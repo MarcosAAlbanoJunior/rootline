@@ -71,7 +71,7 @@ hook, carga, overhead). A análise roda sobre gravações, sem Docker.
 
 ## Hook de chamador
 Pacote do Rootline instalado no serviço analisado que anexa a pilha da aplicação a cada span de banco.
-Vale igualmente para todas as queries; não é um span manual.
+Vale igualmente para todas as queries; não é um span manual. Também marca a fase do span de banco (`rootline.db.phase`: `query` ou `prepare`).
 - Relacionados: [Pilha da aplicação](#pilha-da-aplicação)
 - No código: módulo `hook/`, pacote `callerhook`
 
