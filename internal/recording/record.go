@@ -99,11 +99,16 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 		return fmt.Errorf("recording: collector wrote no traces file: %w", err)
 	}
 
-	m := Manifest{Scenario: sc.Name, AnswerKey: gen.AnswerKey, Seed: SeedID, Load: opts.Load}
+	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), buildManifest(sc, gen, opts.Load))
+}
+
+// buildManifest describes a recording: scenario, symptom, commits, answer key, seed and load.
+func buildManifest(sc fixture.Scenario, gen fixture.Generated, load LoadConfig) Manifest {
+	m := Manifest{Scenario: sc.Name, AnswerKey: gen.AnswerKey, Seed: SeedID, Load: load, Symptom: sc.Symptom}
 	for _, c := range gen.Commits {
 		m.Commits = append(m.Commits, CommitRef{Label: c.Label, SHA: c.SHA})
 	}
-	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), m)
+	return m
 }
 
 // buildVersion exports the commit with git archive and builds its demo-app.

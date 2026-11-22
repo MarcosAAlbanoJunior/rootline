@@ -10,5 +10,6 @@
     "file": "demo-app/internal/orders/service.go",
     "marker": " // rootline:answer",
     "commit": "regressao"
-  }
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"}
 }

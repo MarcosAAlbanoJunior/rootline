@@ -32,6 +32,7 @@ type Manifest struct {
 	AnswerKey fixture.AnswerKey `json:"answer_key"`
 	Seed      string            `json:"seed"`
 	Load      LoadConfig        `json:"load"`
+	Symptom   fixture.Symptom   `json:"symptom"`
 }
 
 // WriteManifest writes m as indented JSON.
