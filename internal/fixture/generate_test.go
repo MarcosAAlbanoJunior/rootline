@@ -101,6 +101,10 @@ func setup(t *testing.T) (source, scenario string) {
 			"cause": "n_plus_one", "function": "example.com/demo-app/internal/orders.(*Service).List",
 			"file": serviceFile, "marker": marker, "commit": "regressao",
 		},
+		"symptom": map[string]string{
+			"service": "demo-app", "method": "GET", "route_source": "span_name",
+			"bad": "regressao", "baseline": "referencia",
+		},
 	}
 	b, _ := json.Marshal(sc)
 	write(t, filepath.Join(scenario, "scenario.json"), string(b))

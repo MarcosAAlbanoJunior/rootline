@@ -142,6 +142,7 @@ func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 	}
 	s := current["detectors_only"]
 	fmt.Fprintf(stdout, "detectors_only\n  Causa:  %s\n  Linha:  %s\n  Commit: %s\n  Estrito: %s\n", s.Cause, s.Line, s.Commit, s.Strict)
+	fmt.Fprintf(stdout, "  Níveis da Linha: 1=%d 2=%d ausente=%d\n", s.LineLevels.Level1, s.LineLevels.Level2, s.LineLevels.None)
 
 	if *update {
 		warnRegressionsBeforeUpdate(*placar, current, stderr)
@@ -190,7 +191,7 @@ func scoreRecordings(dir string) (evaluation.Scoreboard, error) {
 	for _, mp := range manifests {
 		o, err := scoreOne(filepath.Dir(mp))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", filepath.Dir(mp), err)
+			return nil, err // scoreOne already names the recording
 		}
 		total.Add(o)
 	}
@@ -202,30 +203,44 @@ func fileExists(p string) bool {
 	return err == nil
 }
 
+// analyzer runs the analysis of one recording for a symptom.
+type analyzer func(rec string, s analysis.Symptom) (analysis.Result, error)
+
+// analyzeRecording analyzes the recorded traces against the fixture repository of the recording.
+func analyzeRecording(rec string, s analysis.Symptom) (analysis.Result, error) {
+	spans, err := otlpfile.ReadFile(filepath.Join(rec, "traces.jsonl"))
+	if err != nil {
+		return analysis.Result{}, err
+	}
+	git := gitcli.New(filepath.Join(rec, "repo"))
+	return analysis.Analyze(fileSource(spans), goindex.New(git), git, s)
+}
+
+// scoreOne scores one recording; every error names the recording directory once.
 func scoreOne(rec string) (evaluation.Outcome, error) {
 	m, err := recording.ReadManifest(filepath.Join(rec, "manifest.json"))
 	if err != nil {
-		return evaluation.Outcome{}, err
+		return evaluation.Outcome{}, err // the open/parse error already carries the path
 	}
-	shaOf, labelOf := map[string]string{}, map[string]string{}
-	for _, c := range m.Commits {
-		shaOf[c.Label], labelOf[c.SHA] = c.SHA, c.Label
+	o, err := scoreManifest(rec, m, analyzeRecording)
+	if err != nil {
+		return evaluation.Outcome{}, fmt.Errorf("%s: %w", rec, err)
 	}
-	bad, ref := shaOf["regressao"], shaOf["referencia"]
-	if bad == "" {
-		return evaluation.Outcome{}, fmt.Errorf("manifest has no %q commit", "regressao")
-	}
-	spans, err := otlpfile.ReadFile(filepath.Join(rec, "traces.jsonl"))
+	return o, nil
+}
+
+// scoreManifest builds the Symptom from the manifest, runs the analysis and scores the Result
+// against the manifest's answer key.
+func scoreManifest(rec string, m recording.Manifest, analyze analyzer) (evaluation.Outcome, error) {
+	symptom, err := symptomFromManifest(m)
 	if err != nil {
 		return evaluation.Outcome{}, err
 	}
-	git := gitcli.New(filepath.Join(rec, "repo"))
-	res, err := analysis.Analyze(fileSource(spans), goindex.New(git), git, analysis.Symptom{
-		Service:         "demo-app",
-		Operation:       trace.Operation{Method: "GET", Route: m.Load.Route, RouteSource: "span_name"},
-		BadVersion:      bad,
-		BaselineVersion: ref,
-	})
+	labelOf := map[string]string{}
+	for _, c := range m.Commits {
+		labelOf[c.SHA] = c.Label
+	}
+	res, err := analyze(rec, symptom)
 	if err != nil {
 		return evaluation.Outcome{}, err
 	}
@@ -234,6 +249,36 @@ func scoreOne(rec string) (evaluation.Outcome, error) {
 		Line: m.AnswerKey.Line, CommitLabel: m.AnswerKey.CommitLabel}
 	found := foundFromResult(res)
 	return evaluation.ScoreOne(key, found, labelOf), nil
+}
+
+// symptomFromManifest builds the analysis Symptom only from the manifest: service, method and
+// route source from its symptom block, route from the load, versions from the SHAs of the bad and
+// baseline labels. A manifest without the block (older recording) is an error, never a default.
+func symptomFromManifest(m recording.Manifest) (analysis.Symptom, error) {
+	sy := m.Symptom
+	if sy == (fixture.Symptom{}) {
+		return analysis.Symptom{}, fmt.Errorf("manifest has no symptom block (recorded before it existed); record again")
+	}
+	shaOf := map[string]string{}
+	for _, c := range m.Commits {
+		shaOf[c.Label] = c.SHA
+	}
+	bad := shaOf[sy.Bad]
+	if bad == "" {
+		return analysis.Symptom{}, fmt.Errorf("manifest symptom.bad %q is not a recorded commit", sy.Bad)
+	}
+	var baseline string
+	if sy.Baseline != "" {
+		if baseline = shaOf[sy.Baseline]; baseline == "" {
+			return analysis.Symptom{}, fmt.Errorf("manifest symptom.baseline %q is not a recorded commit", sy.Baseline)
+		}
+	}
+	return analysis.Symptom{
+		Service:         sy.Service,
+		Operation:       trace.Operation{Method: sy.Method, Route: m.Load.Route, RouteSource: sy.RouteSource},
+		BadVersion:      bad,
+		BaselineVersion: baseline,
+	}, nil
 }
 
 // writeScoreboardAtomically writes to a temporary file in the same directory and renames it over
@@ -274,7 +319,7 @@ func foundFromResult(res analysis.Result) evaluation.Found {
 	}
 	found.HasCause, found.CauseType = true, res.Cause.Type
 	if l := res.Cause.Location; l != nil {
-		found.Function = l.Function
+		found.Function, found.Level = l.Function, l.Level
 		if l.Level == 1 {
 			found.HasLocation, found.File, found.Line = true, l.File, l.Line
 		}
