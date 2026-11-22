@@ -42,9 +42,9 @@ plano de execução.
 - Evidência vinda de `GENERIC_PLAN` é marcada como "plano genérico" (ignora os valores reais).
 - SQL que não dá para explicar (ex.: literais sanitizados como `?`) é pulado, com o motivo registrado no Resultado.
 
-**Postgres do demo-app:** a versão estável mais recente no momento de fixar a imagem (a página
-oficial lista a 18 como "Current" nas buscas de 22/11/2026; confirmar em postgresql.org ao fixar).
-Qualquer versão a partir da 16 suporta `GENERIC_PLAN`.
+**Postgres do demo-app:** a versão estável mais recente no momento de fixar a imagem. Em
+22/11/2026, a imagem oficial `postgres:latest` é a 19.0. Qualquer versão a partir da 16 suporta
+`GENERIC_PLAN`.
 
 ## Alternativas consideradas
 
