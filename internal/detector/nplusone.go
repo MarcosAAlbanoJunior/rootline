@@ -79,32 +79,39 @@ type Candidate struct {
 	Warnings            []string // location problems (unresolved path, index failure), deduplicated
 }
 
-type phaseKind int
+// Phase says what role a span plays in the database protocol.
+type Phase int
 
 const (
-	phaseNone phaseKind = iota // not a database span
-	phaseQuery
-	phasePrepare
+	PhaseNone Phase = iota // not a database span
+	PhaseQuery
+	PhasePrepare
 )
+
+// PhaseOf tells whether a span is a query span, a prepare span or not a database span.
+func PhaseOf(s trace.Span) Phase {
+	p, _ := classify(s)
+	return p
+}
 
 // classify tells whether a span is a query span, a prepare span or neither, and whether the
 // answer came from the heuristic (no rootline.db.phase attribute).
-func classify(s trace.Span) (kind phaseKind, inferred bool) {
+func classify(s trace.Span) (kind Phase, inferred bool) {
 	if _, ok := s.String(attrQueryText); !ok {
-		return phaseNone, false
+		return PhaseNone, false
 	}
 	if p, ok := s.String(attrPhase); ok {
 		if p == "prepare" {
-			return phasePrepare, false
+			return PhasePrepare, false
 		}
-		return phaseQuery, false
+		return PhaseQuery, false
 	}
 	_, hasName := s.Attrs[attrPrepareName]
 	_, hasRows := s.Attrs[attrRowsAffected]
 	if hasName && !hasRows {
-		return phasePrepare, true
+		return PhasePrepare, true
 	}
-	return phaseQuery, true
+	return PhaseQuery, true
 }
 
 type groupKey struct{ parent, query string }
@@ -116,7 +123,7 @@ func FindOccurrences(spans []trace.Span) []Occurrence {
 	var queries []trace.Span
 	for _, s := range spans {
 		kind, _ := classify(s)
-		if kind != phaseQuery {
+		if kind != PhaseQuery {
 			continue
 		}
 		queries = append(queries, s)
