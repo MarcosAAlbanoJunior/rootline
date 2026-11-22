@@ -17,19 +17,27 @@ type Found struct {
 	CauseType   string
 	Function    string
 	HasLocation bool // level-1 location present
+	Level       int  // location level of the cause: 0 = absent, 1 or 2
 	File        string
 	Line        int
 	CommitSHA   string // "" = the Result has no commit
 }
 
-// Outcome is the result of scoring one Result.
-type Outcome struct{ Cause, Line, Commit, Strict bool }
+// Outcome is the result of scoring one Result. LineLevel is the location level of the cause
+// (0 = absent, 1, 2); it feeds the distribution, not the Line hit (ADR-0014).
+type Outcome struct {
+	Cause, Line, Commit, Strict bool
+	LineLevel                   int
+}
 
 // ScoreOne scores one Result. shaToLabel is the manifest mapping from commit SHA to label.
 func ScoreOne(key Key, found Found, shaToLabel map[string]string) Outcome {
 	var o Outcome
 	o.Cause = found.HasCause && found.CauseType == key.CauseType && found.Function == key.Function
 	o.Line = found.HasCause && found.HasLocation && found.File == key.File && found.Line == key.Line
+	if found.HasCause {
+		o.LineLevel = found.Level
+	}
 	switch found.CommitSHA {
 	case "":
 		o.Commit = key.CommitLabel == ""
@@ -56,12 +64,21 @@ func (m Metric) String() string {
 	return fmt.Sprintf("%d/%d, %d%%", m.Hits, m.Total, pct)
 }
 
-// Score accumulates the four metrics.
+// LineLevels is the distribution of location levels behind the Line metric (ADR-0009, ADR-0014).
+// Its counts add up to line.total.
+type LineLevels struct {
+	Level1 int `json:"level_1"`
+	Level2 int `json:"level_2"`
+	None   int `json:"none"`
+}
+
+// Score accumulates the four metrics and the distribution of location levels.
 type Score struct {
-	Cause  Metric `json:"cause"`
-	Line   Metric `json:"line"`
-	Commit Metric `json:"commit"`
-	Strict Metric `json:"strict"`
+	Cause      Metric     `json:"cause"`
+	Line       Metric     `json:"line"`
+	Commit     Metric     `json:"commit"`
+	Strict     Metric     `json:"strict"`
+	LineLevels LineLevels `json:"line_levels"`
 }
 
 // Add accumulates one outcome.
@@ -76,4 +93,12 @@ func (s *Score) Add(o Outcome) {
 	add(&s.Line, o.Line)
 	add(&s.Commit, o.Commit)
 	add(&s.Strict, o.Strict)
+	switch o.LineLevel {
+	case 1:
+		s.LineLevels.Level1++
+	case 2:
+		s.LineLevels.Level2++
+	default:
+		s.LineLevels.None++
+	}
 }
