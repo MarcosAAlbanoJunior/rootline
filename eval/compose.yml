@@ -1,0 +1,15 @@
+# Used by `rootline-eval record`. Ports and the collector output dir come from the environment.
+services:
+  postgres:
+    image: postgres:19.0
+    environment:
+      POSTGRES_PASSWORD: rootline
+      POSTGRES_DB: shop
+    ports: ["${ROOTLINE_PG_PORT:-55432}:5432"]
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otelcol.yaml:/etc/otelcol/config.yaml:ro,Z
+      - ${ROOTLINE_COLLECTOR_OUT:-./out}:/out:Z
+    ports: ["${ROOTLINE_OTLP_PORT:-54318}:4318"]
