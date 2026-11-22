@@ -1,0 +1,20 @@
+{
+  "detectors_only": {
+    "cause": {
+      "hits": 1,
+      "total": 1
+    },
+    "line": {
+      "hits": 1,
+      "total": 1
+    },
+    "commit": {
+      "hits": 1,
+      "total": 1
+    },
+    "strict": {
+      "hits": 1,
+      "total": 1
+    }
+  }
+}
