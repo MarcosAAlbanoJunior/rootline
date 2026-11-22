@@ -1,0 +1,118 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          install-only: true
+      - name: root
+        run: |
+          go build ./...
+          go test ./...
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          golangci-lint run
+      - name: hook
+        working-directory: hook
+        env:
+          GOWORK: "off"
+        run: |
+          go build ./...
+          go test ./...
+          go vet ./...
+          golangci-lint run
+      - name: demo-app
+        working-directory: demo-app
+        env:
+          GOWORK: "off"
+        run: |
+          go build ./...
+          go test ./...
+          go vet ./...
+          golangci-lint run
+
+  cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: darwin, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: build root
+        run: go build ./...
+      - name: build hook
+        working-directory: hook
+        env:
+          GOWORK: "off"
+        run: go build ./...
+
+  # Desvio temporário do ADR-0008: grava o cenário com Docker no runner até o cache de gravações existir (issue #5).
+  placar:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: build rootline-eval
+        run: go build -o "$RUNNER_TEMP/rootline-eval" ./cmd/rootline-eval
+      - name: record
+        run: |
+          "$RUNNER_TEMP/rootline-eval" record \
+            --scenario eval/fixtures/scenarios/n1-basic \
+            --source . \
+            --out "$RUNNER_TEMP/recordings"
+      - name: score
+        run: |
+          "$RUNNER_TEMP/rootline-eval" score \
+            --recordings "$RUNNER_TEMP/recordings" \
+            --placar eval/placar.json
+
+  e2e:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - run: go test -tags e2e -count=1 ./internal/recording/

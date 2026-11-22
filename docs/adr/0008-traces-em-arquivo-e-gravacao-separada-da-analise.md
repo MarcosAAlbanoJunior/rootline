@@ -66,3 +66,10 @@ ela não cabe no ciclo de desenvolvimento nem no CI de cada PR.
 - Teste: alterar um arquivo do hook muda a chave do cache.
 - A avaliação só-detectores roda no CI de PR sem Docker, a partir do cache.
 - Reprodução a partir do artefato de release gera os mesmos números do modo só-detectores.
+
+## Desvio temporário
+
+Até a slice do cache de gravações entrar, o portão de placar do PR grava o cenário com Docker no
+próprio runner (`rootline-eval record`) e depois pontua só com detectores, em vez de usar o cache.
+A decisão acima não muda. O desvio acaba com a remoção acompanhada na
+issue #5 (https://github.com/MarcosAAlbanoJunior/rootline/issues/5).
