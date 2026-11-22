@@ -66,7 +66,7 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(work)
+	defer func() { _ = os.RemoveAll(work) }() // best-effort cleanup of a temp dir
 
 	binaries := map[string]string{}
 	for _, c := range gen.Commits {
@@ -274,7 +274,7 @@ func runVersion(ctx context.Context, opts RecordOptions, bin, sha string) error 
 			return err
 		case <-time.After(15 * time.Second):
 			_ = cmd.Process.Kill()
-			<-exited
+			<-exited //nolint:errcheck // the process was killed; its exit error says nothing new
 			return errors.New("demo-app did not stop after SIGINT")
 		}
 	}
@@ -308,7 +308,7 @@ func waitHealthy(ctx context.Context, client *http.Client, url string, exited <-
 		}
 		resp, err := client.Get(url)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}

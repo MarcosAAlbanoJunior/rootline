@@ -158,7 +158,7 @@ func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 		fmt.Fprintf(stderr, "rootline-eval: %v\n", err)
 		return 1
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	baseline, err := evaluation.ReadScoreboard(f)
 	if err != nil {
 		fmt.Fprintf(stderr, "rootline-eval: %s: %v\n", *placar, err)
@@ -292,7 +292,7 @@ func warnRegressionsBeforeUpdate(path string, current evaluation.Scoreboard, std
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	old, err := evaluation.ReadScoreboard(f)
 	if err != nil {
 		return

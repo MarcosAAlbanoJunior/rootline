@@ -46,7 +46,7 @@ func RunLoad(ctx context.Context, baseURL string, cfg LoadConfig) error {
 			return fmt.Errorf("recording: request %d to %s: %w", i+1, url, err)
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("recording: request %d to %s: status %d", i+1, url, resp.StatusCode)
 		}

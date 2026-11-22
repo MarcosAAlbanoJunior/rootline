@@ -4,6 +4,17 @@ linters:
   default: none
   enable:
     - depguard
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  exclusions:
+    rules:
+      # cmd/ writes messages to the CLI's stdout/stderr; there is nothing to do if that write fails.
+      - path: ^cmd/
+        linters: [errcheck]
+        text: "fmt\\.Fprint"
   settings:
     depguard:
       rules:

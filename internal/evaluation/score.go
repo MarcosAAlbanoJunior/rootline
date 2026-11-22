@@ -30,8 +30,8 @@ func ScoreOne(key Key, found Found, shaToLabel map[string]string) Outcome {
 	var o Outcome
 	o.Cause = found.HasCause && found.CauseType == key.CauseType && found.Function == key.Function
 	o.Line = found.HasCause && found.HasLocation && found.File == key.File && found.Line == key.Line
-	switch {
-	case found.CommitSHA == "":
+	switch found.CommitSHA {
+	case "":
 		o.Commit = key.CommitLabel == ""
 	default:
 		label, known := shaToLabel[found.CommitSHA]
