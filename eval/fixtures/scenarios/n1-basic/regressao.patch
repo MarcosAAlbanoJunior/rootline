@@ -1,0 +1,58 @@
+diff --git a/demo-app/internal/orders/repository.go b/demo-app/internal/orders/repository.go
+index ab3ffb9..ad53365 100644
+--- a/demo-app/internal/orders/repository.go
++++ b/demo-app/internal/orders/repository.go
+@@ -48,10 +48,10 @@ func (r *Repository) OrdersByCustomer(ctx context.Context, customerID int64) ([]
+ 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
+ }
+ 
+-// ItemsByOrders returns the items of all given orders in a single query.
+-func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++// ItemsByOrder returns the items of one order.
++func (r *Repository) ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error) {
+ 	rows, err := r.db.Query(ctx,
+-		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`, orderID)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/demo-app/internal/orders/service.go b/demo-app/internal/orders/service.go
+index 9435fb2..3530fda 100644
+--- a/demo-app/internal/orders/service.go
++++ b/demo-app/internal/orders/service.go
+@@ -11,7 +11,7 @@ type OrderWithItems struct {
+ // Store is what the service needs from the repository.
+ type Store interface {
+ 	OrdersByCustomer(ctx context.Context, customerID int64) ([]Order, error)
+-	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++	ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error)
+ }
+ 
+ // Service composes orders with their items.
+@@ -30,21 +30,13 @@ func (s *Service) OrdersWithItems(ctx context.Context, customerID int64) ([]Orde
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	ids := make([]int64, 0, len(list))
+-	for _, o := range list {
+-		ids = append(ids, o.ID)
+-	}
+-	items, err := s.store.ItemsByOrders(ctx, ids)
+-	if err != nil {
+-		return nil, err
+-	}
+-	byOrder := make(map[int64][]Item, len(list))
+-	for _, it := range items {
+-		byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
+-	}
+ 	out := make([]OrderWithItems, 0, len(list))
+ 	for _, o := range list {
+-		out = append(out, OrderWithItems{Order: o, Items: byOrder[o.ID]})
++		items, err := s.store.ItemsByOrder(ctx, o.ID) // rootline:answer
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, OrderWithItems{Order: o, Items: items})
+ 	}
+ 	return out, nil
+ }

@@ -1,0 +1,14 @@
+{
+  "name": "n1-basic",
+  "commits": [
+    {"label": "referencia"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders.(*Service).OrdersWithItems",
+    "file": "demo-app/internal/orders/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  }
+}
