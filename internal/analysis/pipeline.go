@@ -280,13 +280,9 @@ func statsEvidence(id, version string, vts []versionTrace) SymptomStatsEvidence 
 		durations = append(durations, float64(vt.root.End.Sub(vt.root.Start))/float64(time.Millisecond))
 		n := 0
 		for _, sp := range vt.spans {
-			if _, ok := sp.String("db.query.text"); !ok {
-				continue
+			if detector.PhaseOf(sp) == detector.PhaseQuery {
+				n++
 			}
-			if phase, _ := sp.String("rootline.db.phase"); phase == "prepare" {
-				continue
-			}
-			n++
 		}
 		counts = append(counts, n)
 	}
