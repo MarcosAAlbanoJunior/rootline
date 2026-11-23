@@ -80,8 +80,8 @@ Ponto do código responsável por uma evidência (função e, se possível, arqu
 O nível diz só a procedência: 1 = pilha da aplicação no span de banco (exata); 2 = rota HTTP →
 handler ("aproximada", sem linha). Se o loop foi achado, quem diz é `in_loop` e os avisos (por
 exemplo `loop_not_found`), não o nível: sem frame em loop, a localização continua no nível 1
-([ADR-0017](docs/adr/0017-localizacao-sem-frame-em-loop.md)). A função é a declarada, sem o
-sufixo `-rangeN` de corpo de range-over-func ([ADR-0016](docs/adr/0016-funcao-declarada-no-lugar-do-corpo-range-over-func.md)).
+([ADR-0017](docs/adr/0017-localizacao-sem-frame-em-loop.md)). A função é a declarada, sem os
+sufixos sintéticos `-rangeN` (corpo de range-over-func) e `.funcN` (closure) ([ADR-0019](docs/adr/0019-funcao-declarada-no-lugar-de-nomes-sinteticos.md)).
 - Relacionados: [Evidência](#evidência), [ADR-0002](docs/adr/0002-localizacao-de-queries-no-codigo.md)
 - No código: `Location`, com `LocationLevel`
 
@@ -105,6 +105,14 @@ O span raiz do serviço para uma requisição ou unidade de trabalho. Na v1, só
 `http.route`); filas e jobs entram depois como novos tipos.
 - Evitar: "endpoint" no modelo de domínio (é só o caso HTTP).
 - No código: `EntryOperation`
+
+## Pai efetivo
+O span sob o qual o detector agrupa as queries repetidas e procura o "+1": o pai direto do span de
+query ou, quando esse pai é um wrapper genérico repetido (span `INTERNAL`, homônimo de outros irmãos,
+só com filhos de banco), o avô. Um nível só.
+- Evitar: "pai" (solto) quando o sentido é este.
+- Relacionados: [Detector](#detector), [ADR-0018](docs/adr/0018-pai-efetivo-das-queries-repetidas.md)
+- No código: `EffectiveParent`
 
 ## Patch de preparação
 Patch aplicado no commit `referencia` de um cenário para trazer o código pré-existente que ele precisa
