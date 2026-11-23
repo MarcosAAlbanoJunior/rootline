@@ -31,7 +31,7 @@ Continua proibido criar spans manuais onde sabemos que está o bug.
 > Esclarecimento (23/11/2026): spans genéricos de infraestrutura que o serviço já emite, como um
 > span por job de um pool de trabalho ou de um middleware, valem igualmente para qualquer trabalho
 > e não são spans manuais no lugar do bug. O detector os atravessa ao agrupar as queries repetidas
-> ([ADR-0018](0018-pai-efetivo-das-queries-repetidas.md)). O **OBI (eBPF)** fica registrado
+> ([ADR-0020](0020-pai-efetivo-com-filhos-do-cliente-de-banco.md)). O **OBI (eBPF)** fica registrado
 como fonte complementar futura de spans; não substitui o hook porque não fornece localização.
 
 **Composição:** o hook é um `pgx.QueryTracer` e `pgx.PrepareTracer` colocado **depois do otelpgx**

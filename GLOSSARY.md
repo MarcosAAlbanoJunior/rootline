@@ -109,9 +109,10 @@ O span raiz do serviço para uma requisição ou unidade de trabalho. Na v1, só
 ## Pai efetivo
 O span sob o qual o detector agrupa as queries repetidas e procura o "+1": o pai direto do span de
 query ou, quando esse pai é um wrapper genérico repetido (span `INTERNAL`, homônimo de outros irmãos,
-só com filhos de banco), o avô. Um nível só.
+só com filhos de banco: spans de query ou prepare, ou com `db.system.name`/`db.system`, como
+`pool.acquire`), o avô. Um nível só.
 - Evitar: "pai" (solto) quando o sentido é este.
-- Relacionados: [Detector](#detector), [ADR-0018](docs/adr/0018-pai-efetivo-das-queries-repetidas.md)
+- Relacionados: [Detector](#detector), [ADR-0020](docs/adr/0020-pai-efetivo-com-filhos-do-cliente-de-banco.md)
 - No código: `EffectiveParent`
 
 ## Patch de preparação
