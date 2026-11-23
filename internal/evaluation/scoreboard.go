@@ -25,38 +25,72 @@ func WriteScoreboard(w io.Writer, sb Scoreboard) error {
 	return enc.Encode(sb)
 }
 
-// Regressions lists "<mode>.<metric>" for each metric whose hits dropped while the total stayed
-// the same as in the baseline. Metrics with different denominators are not compared. A mode that
-// is in the baseline but missing from the current run regresses all of its metrics.
+// Regressions lists what dropped from the baseline to the current run. A mode that is in the
+// baseline but missing from the current run regresses all of its metrics ("<mode>.<metric>").
+//
+// When the baseline mode has scenarios, they are compared one by one: each of cause, line, commit
+// and strict that was true and became false gives "<mode>.<scenario>.<metric>", even if the
+// aggregate did not change, and a scenario missing from the current run gives
+// "<mode>.<scenario>". A scenario that is new in the current run and a change of line level only
+// are not regressions.
+//
+// A baseline mode without scenarios (older scoreboard) uses the aggregate rule: a metric whose
+// hits dropped while the total stayed the same. Metrics with different denominators are not
+// compared.
 func Regressions(baseline, current Scoreboard) []string {
-	modes := make([]string, 0, len(baseline))
-	for m := range baseline {
-		modes = append(modes, m)
-	}
-	sort.Strings(modes)
 	var out []string
-	for _, mode := range modes {
+	for _, mode := range sortedKeys(baseline) {
 		base := baseline[mode]
 		cur, ok := current[mode]
-		if !ok {
-			for _, metric := range []string{"cause", "line", "commit", "strict"} {
+		switch {
+		case !ok:
+			for _, metric := range metricNames {
 				out = append(out, mode+"."+metric)
 			}
+		case base.Scenarios != nil:
+			out = append(out, scenarioRegressions(mode, base.Scenarios, cur.Scenarios)...)
+		default:
+			out = append(out, aggregateRegressions(mode, base, cur)...)
+		}
+	}
+	return out
+}
+
+var metricNames = []string{"cause", "line", "commit", "strict"}
+
+func scenarioRegressions(mode string, base, cur map[string]Outcome) []string {
+	var out []string
+	for _, name := range sortedKeys(base) {
+		b := base[name]
+		c, ok := cur[name]
+		if !ok {
+			out = append(out, mode+"."+name)
 			continue
 		}
-		for _, m := range []struct {
-			name      string
-			base, cur Metric
-		}{
-			{"cause", base.Cause, cur.Cause},
-			{"line", base.Line, cur.Line},
-			{"commit", base.Commit, cur.Commit},
-			{"strict", base.Strict, cur.Strict},
-		} {
-			if m.base.Total == m.cur.Total && m.cur.Hits < m.base.Hits {
-				out = append(out, mode+"."+m.name)
+		for i, pair := range [][2]bool{{b.Cause, c.Cause}, {b.Line, c.Line}, {b.Commit, c.Commit}, {b.Strict, c.Strict}} {
+			if pair[0] && !pair[1] {
+				out = append(out, mode+"."+name+"."+metricNames[i])
 			}
 		}
 	}
 	return out
+}
+
+func aggregateRegressions(mode string, base, cur Score) []string {
+	var out []string
+	for i, pair := range [][2]Metric{{base.Cause, cur.Cause}, {base.Line, cur.Line}, {base.Commit, cur.Commit}, {base.Strict, cur.Strict}} {
+		if pair[0].Total == pair[1].Total && pair[1].Hits < pair[0].Hits {
+			out = append(out, mode+"."+metricNames[i])
+		}
+	}
+	return out
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

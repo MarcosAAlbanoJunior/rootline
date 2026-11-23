@@ -26,8 +26,11 @@ type Found struct {
 // Outcome is the result of scoring one Result. LineLevel is the location level of the cause
 // (0 = absent, 1, 2); it feeds the distribution, not the Line hit (ADR-0014).
 type Outcome struct {
-	Cause, Line, Commit, Strict bool
-	LineLevel                   int
+	Cause     bool `json:"cause"`
+	Line      bool `json:"line"`
+	Commit    bool `json:"commit"`
+	Strict    bool `json:"strict"`
+	LineLevel int  `json:"line_level"`
 }
 
 // ScoreOne scores one Result. shaToLabel is the manifest mapping from commit SHA to label.
@@ -72,13 +75,26 @@ type LineLevels struct {
 	None   int `json:"none"`
 }
 
-// Score accumulates the four metrics and the distribution of location levels.
+// Score accumulates the four metrics and the distribution of location levels. Scenarios keeps the
+// outcome of each scenario by name; with more than one scenario the aggregate alone masks a swap
+// (one improves, another drops, same total), so regressions are found per scenario.
 type Score struct {
-	Cause      Metric     `json:"cause"`
-	Line       Metric     `json:"line"`
-	Commit     Metric     `json:"commit"`
-	Strict     Metric     `json:"strict"`
-	LineLevels LineLevels `json:"line_levels"`
+	Cause      Metric             `json:"cause"`
+	Line       Metric             `json:"line"`
+	Commit     Metric             `json:"commit"`
+	Strict     Metric             `json:"strict"`
+	LineLevels LineLevels         `json:"line_levels"`
+	Scenarios  map[string]Outcome `json:"scenarios,omitempty"`
+}
+
+// ScoreScenarios builds a Score whose aggregate is derived from the outcome of each scenario.
+func ScoreScenarios(outcomes map[string]Outcome) Score {
+	s := Score{Scenarios: make(map[string]Outcome, len(outcomes))}
+	for name, o := range outcomes {
+		s.Scenarios[name] = o
+		s.Add(o)
+	}
+	return s
 }
 
 // Add accumulates one outcome.
