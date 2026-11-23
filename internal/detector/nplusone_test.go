@@ -2,7 +2,6 @@ package detector_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,86 +78,6 @@ func plusOneThenRepeats(traceID string, plusRows int64, n int, rows int64, opts 
 	return append(spans, repeated(traceID, "root", 10, n, rows, opts...)...)
 }
 
-func itemsOccurrences(t *testing.T, spans []trace.Span) []detector.Occurrence {
-	t.Helper()
-	var out []detector.Occurrence
-	for _, o := range detector.FindOccurrences(spans) {
-		if o.Query == itemsQuery {
-			out = append(out, o)
-		}
-	}
-	return out
-}
-
-func TestFindOccurrences_PlusOneOccurrence(t *testing.T) {
-	occ := itemsOccurrences(t, plusOneThenRepeats("t1", 10, 10, 3))
-	if len(occ) != 1 {
-		t.Fatalf("want 1 occurrence, got %d", len(occ))
-	}
-	if !occ[0].PlusOne {
-		t.Error("PlusOne = false, want true")
-	}
-	if len(occ[0].Spans) != 10 || occ[0].ParentSpanID != "root" || occ[0].RowsMedian != 3 {
-		t.Errorf("unexpected occurrence: %d spans, parent %q, rows median %d", len(occ[0].Spans), occ[0].ParentSpanID, occ[0].RowsMedian)
-	}
-}
-
-func TestFindOccurrences_NoOccurrence(t *testing.T) {
-	split := append(repeated("t", "p1", 0, 4, 3), repeated("t", "p2", 10, 3, 3)...)
-	split = append(split, repeated("t", "p3", 20, 3, 3)...)
-	tests := []struct {
-		name  string
-		spans []trace.Span
-	}{
-		{"4 repetitions is below MinRepetitions", repeated("t", "root", 0, 4, 3)},
-		{"median rows 11 is above MaxMedianRows", repeated("t", "root", 0, 10, 11)},
-		{"repetitions under different parents", split},
-		{"pagination: 10 equal queries with 50 rows", repeated("t", "root", 0, 10, 50)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if occ := itemsOccurrences(t, tc.spans); len(occ) != 0 {
-				t.Fatalf("want no occurrence, got %d", len(occ))
-			}
-		})
-	}
-}
-
-func TestFindOccurrences_BoundariesAreInclusive(t *testing.T) {
-	if occ := itemsOccurrences(t, repeated("t", "root", 0, 5, 3)); len(occ) != 1 {
-		t.Errorf("5 repetitions must be reported, got %d occurrences", len(occ))
-	}
-	if occ := itemsOccurrences(t, repeated("t", "root", 0, 6, 10)); len(occ) != 1 {
-		t.Errorf("median rows 10 must be reported, got %d occurrences", len(occ))
-	}
-}
-
-func TestFindOccurrences_PlusOneFalse(t *testing.T) {
-	tests := []struct {
-		name  string
-		spans []trace.Span
-		want  bool
-	}{
-		{"no +1 query before the group", repeated("t", "root", 0, 10, 3), false},
-		{"+1 with rows 20 for 10 repetitions", plusOneThenRepeats("t", 20, 10, 3), false},
-		{"+1 query started after the group", append(repeated("t", "root", 0, 10, 3), dbSpan("t", "late", "root", 50, ordersQuery, 10)), false},
-		{"+1 with rows 11 (tolerance 1)", plusOneThenRepeats("t", 11, 10, 3), true},
-		{"+1 with rows 9 (tolerance 1)", plusOneThenRepeats("t", 9, 10, 3), true},
-		{"+1 under a different parent", append([]trace.Span{dbSpan("t", "plus", "other", 0, ordersQuery, 10)}, repeated("t", "root", 10, 10, 3)...), false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			occ := itemsOccurrences(t, tc.spans)
-			if len(occ) != 1 {
-				t.Fatalf("want 1 occurrence, got %d", len(occ))
-			}
-			if occ[0].PlusOne != tc.want {
-				t.Fatalf("PlusOne = %v, want %v", occ[0].PlusOne, tc.want)
-			}
-		})
-	}
-}
-
 // fakeEnv: every file resolves to demo-app/<rel>; only the listed "file:line" are in a loop.
 type fakeEnv struct{ loops map[string]bool }
 
@@ -230,39 +149,6 @@ func mustOne(t *testing.T, trs [][]trace.Span) detector.Candidate {
 	return items[0]
 }
 
-func TestFindOccurrences_PrepareSpansAreNotCounted(t *testing.T) {
-	t.Run("explicit prepare phase", func(t *testing.T) {
-		spans := append(repeated("t", "root", 0, 10, 3, phase("prepare")), repeated("t2", "root", 20, 3, 3)...)
-		if occ := itemsOccurrences(t, spans); len(occ) != 0 {
-			t.Fatalf("10 prepare + 3 query spans must not reach MinRepetitions, got %d occurrences", len(occ))
-		}
-	})
-	t.Run("heuristic: prepare_stmt.name and no rows_affected", func(t *testing.T) {
-		spans := append(repeated("t", "root", 0, 10, 0, noPhase(), noRows(), prepName()), repeated("t2", "root", 20, 3, 3)...)
-		if occ := itemsOccurrences(t, spans); len(occ) != 0 {
-			t.Fatalf("heuristic prepare spans must not count, got %d occurrences", len(occ))
-		}
-	})
-	t.Run("missing phase attribute marks phase_inferred", func(t *testing.T) {
-		occ := itemsOccurrences(t, repeated("t", "root", 0, 6, 3, noPhase()))
-		if len(occ) != 1 || !occ[0].PhaseInferred {
-			t.Fatalf("want 1 occurrence with PhaseInferred, got %+v", occ)
-		}
-	})
-	t.Run("explicit phase is not inferred", func(t *testing.T) {
-		occ := itemsOccurrences(t, repeated("t", "root", 0, 6, 3))
-		if len(occ) != 1 || occ[0].PhaseInferred {
-			t.Fatalf("want 1 occurrence without PhaseInferred, got %+v", occ)
-		}
-	})
-	t.Run("inferred phase gives phase_inferred and medium confidence", func(t *testing.T) {
-		c := mustOne(t, traces(4, 4, func(id string) []trace.Span { return plusOneThenRepeats(id, 10, 10, 3, noPhase()) }))
-		if !c.PhaseInferred || c.Confidence != "medium" {
-			t.Fatalf("got PhaseInferred=%v confidence=%q", c.PhaseInferred, c.Confidence)
-		}
-	})
-}
-
 func TestDetect_CandidateThresholds(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -293,150 +179,6 @@ func TestDetect_CandidateThresholds(t *testing.T) {
 	}
 }
 
-func spansWithStack(entries ...string) []trace.Span {
-	return repeated("t", "root", 0, 5, 3, stack(entries...))
-}
-
-func TestLocate_AppliesTheLevelOneRule(t *testing.T) {
-	outer := modPath + "/internal/orders.(*Handler).Get"
-	tests := []struct {
-		name       string
-		env        fakeEnv
-		spans      []trace.Span
-		wantFunc   string
-		wantFile   string
-		wantLine   int
-		wantInLoop bool
-	}{
-		{
-			name:       "loop in the innermost frame",
-			env:        fakeEnv{loops: map[string]bool{"demo-app/internal/orders/repository.go:30": true}},
-			spans:      spansWithStack(defaultStack...),
-			wantFunc:   repoFunc,
-			wantFile:   "demo-app/internal/orders/repository.go",
-			wantLine:   30,
-			wantInLoop: true,
-		},
-		{
-			name: "loop in an outer frame (helper in another layer)",
-			env:  loopAtService,
-			spans: spansWithStack(append(append([]string{}, defaultStack...),
-				outer+" internal/orders/handler.go:7")...),
-			wantFunc:   svcFunc,
-			wantFile:   "demo-app/internal/orders/service.go",
-			wantLine:   42,
-			wantInLoop: true,
-		},
-		{
-			name:       "no frame in a loop falls back to the innermost frame",
-			env:        fakeEnv{},
-			spans:      spansWithStack(defaultStack...),
-			wantFunc:   repoFunc,
-			wantFile:   "demo-app/internal/orders/repository.go",
-			wantLine:   30,
-			wantInLoop: false,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			loc, reason := detector.Locate(tc.env, "abc1234", tc.spans)
-			if loc == nil {
-				t.Fatalf("location is nil (reason %q)", reason)
-			}
-			if loc.Level != 1 || loc.Function != tc.wantFunc || loc.File != tc.wantFile || loc.Line != tc.wantLine || loc.InLoop != tc.wantInLoop {
-				t.Fatalf("got %+v", *loc)
-			}
-		})
-	}
-
-	t.Run("no app stack gives nil and no_app_stack", func(t *testing.T) {
-		loc, reason := detector.Locate(loopAtService, "abc1234", spansWithStack())
-		if loc != nil || reason != "no_app_stack" {
-			t.Fatalf("got loc=%v reason=%q", loc, reason)
-		}
-	})
-
-	t.Run("most frequent location among spans wins", func(t *testing.T) {
-		spans := append(spansWithStack(defaultStack...),
-			dbSpan("t", "odd", "root", 90, itemsQuery, 3, stack(repoFunc+" internal/orders/repository.go:99")))
-		loc, _ := detector.Locate(fakeEnv{}, "abc1234", spans)
-		if loc == nil || loc.Line != 30 {
-			t.Fatalf("got %+v, want the line-30 location (5 spans vs 1)", loc)
-		}
-	})
-}
-
-// ADR-0016: the location names the declared function, not the range-over-func body; file and line
-// stay those of the frame.
-func TestLocate_FunctionDropsTheRangeOverFuncSuffix(t *testing.T) {
-	tests := []struct{ frame, want string }{
-		{"example.com/m/pkg.(*Service).Lines-range1", "example.com/m/pkg.(*Service).Lines"},
-		{"example.com/m/pkg.(*Service).Lines-range1-range2", "example.com/m/pkg.(*Service).Lines"},
-		{"example.com/m/pkg.Walk-range12.func1", "example.com/m/pkg.Walk.func1"},
-		{"example.com/m/pkg.(*Service).List.func2", "example.com/m/pkg.(*Service).List.func2"},
-		{"example.com/m/pkg.Map[...]", "example.com/m/pkg.Map[...]"},
-		{"example.com/m/pkg.(*Service).Arrange", "example.com/m/pkg.(*Service).Arrange"},
-	}
-	env := fakeEnv{loops: map[string]bool{"demo-app/internal/pkg/service.go:17": true}}
-	for _, tc := range tests {
-		t.Run(tc.frame, func(t *testing.T) {
-			loc, reason := detector.Locate(env, "abc1234", spansWithStack(tc.frame+" internal/pkg/service.go:17"))
-			if loc == nil {
-				t.Fatalf("location is nil (reason %q)", reason)
-			}
-			if loc.Function != tc.want || loc.File != "demo-app/internal/pkg/service.go" || loc.Line != 17 {
-				t.Fatalf("got %+v, want Function %q at demo-app/internal/pkg/service.go:17", *loc, tc.want)
-			}
-		})
-	}
-}
-
-// eightFramesWithoutLoop is an app_stack cut at 8 frames before reaching the loop.
-func eightFramesWithoutLoop() []string {
-	var frames []string
-	for i := 1; i <= 8; i++ {
-		frames = append(frames, fmt.Sprintf("%s/internal/deep.F%d internal/deep/f%d.go:%d", modPath, i, i, 10+i))
-	}
-	return frames
-}
-
-const loopNotFound8 = "loop_not_found: no app_stack frame inside a loop (8 frames)"
-
-func count(list []string, s string) int {
-	n := 0
-	for _, x := range list {
-		if x == s {
-			n++
-		}
-	}
-	return n
-}
-
-// ADR-0017: without a frame in a loop the location stays at level 1 on the innermost resolvable
-// frame, with InLoop false, and says so in a warning instead of lowering the level.
-func TestLocateWithWarnings_NoFrameInALoopWarnsLoopNotFound(t *testing.T) {
-	spans := spansWithStack(eightFramesWithoutLoop()...) // 5 spans with the same stack
-	loc, reason, warnings := detector.LocateWithWarnings(fakeEnv{}, "abc1234", spans)
-	if loc == nil {
-		t.Fatalf("location is nil (reason %q)", reason)
-	}
-	if loc.Level != 1 || loc.InLoop || loc.File != "demo-app/internal/deep/f1.go" || loc.Line != 11 {
-		t.Fatalf("got %+v, want level 1, not in loop, at demo-app/internal/deep/f1.go:11", *loc)
-	}
-	if n := count(warnings, loopNotFound8); n != 1 {
-		t.Fatalf("warnings = %q, want %q exactly once", warnings, loopNotFound8)
-	}
-}
-
-func TestLocateWithWarnings_AFrameInALoopGivesNoLoopNotFoundWarning(t *testing.T) {
-	_, _, warnings := detector.LocateWithWarnings(loopAtService, "abc1234", spansWithStack(defaultStack...))
-	for _, w := range warnings {
-		if strings.HasPrefix(w, "loop_not_found:") {
-			t.Fatalf("warnings = %q, want no loop_not_found", warnings)
-		}
-	}
-}
-
 func TestDetect_LoopNotFoundIsReportedOncePerDistinctStack(t *testing.T) {
 	// Same innermost frame (same candidate), two distinct stacks: 8 frames and 3 frames.
 	shorter := eightFramesWithoutLoop()[:3]
@@ -459,21 +201,5 @@ func TestDetect_LoopNotFoundIsReportedOncePerDistinctStack(t *testing.T) {
 	}
 	if n := count(all, "loop_not_found: no app_stack frame inside a loop (3 frames)"); n != 1 {
 		t.Fatalf("warnings = %q, want the 3-frame stack reported once too", all)
-	}
-}
-
-// The warning describes the chosen location: a minority span without a loop frame does not raise
-// it when the majority location is inside a loop.
-func TestLocateWithWarnings_NoLoopNotFoundWhenTheChosenLocationIsInALoop(t *testing.T) {
-	spans := append(spansWithStack(defaultStack...), // 5 spans through the loop in the service
-		dbSpan("t", "odd", "root", 90, itemsQuery, 3, stack(repoFunc+" internal/orders/repository.go:99")))
-	loc, _, warnings := detector.LocateWithWarnings(loopAtService, "abc1234", spans)
-	if loc == nil || !loc.InLoop {
-		t.Fatalf("got %+v, want the in-loop location (5 spans vs 1)", loc)
-	}
-	for _, w := range warnings {
-		if strings.HasPrefix(w, "loop_not_found:") {
-			t.Fatalf("warnings = %q, want no loop_not_found for an in-loop location", warnings)
-		}
 	}
 }
