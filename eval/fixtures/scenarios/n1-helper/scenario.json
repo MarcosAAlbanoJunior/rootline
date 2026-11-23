@@ -1,0 +1,17 @@
+{
+  "name": "n1-helper",
+  "assumption": "o loop fica dois frames acima da query, em outro pacote (receipts chama pricing.Calculator, que chama o repositório de pricing), e a query repetida não é a de itens, é uma agregada de totais",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/receipts.(*Service).Receipts",
+    "file": "demo-app/internal/receipts/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/receipts", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/receipts", "weight": 1}]}
+}
