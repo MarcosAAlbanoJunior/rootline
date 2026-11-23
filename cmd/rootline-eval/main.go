@@ -109,7 +109,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	err := recording.Record(ctx, recording.RecordOptions{
-		ScenarioDir: *scenario, SourceDir: *source, OutDir: *out, Load: recording.DefaultLoad(),
+		ScenarioDir: *scenario, SourceDir: *source, OutDir: *out,
 		PostgresPort: *pg, CollectorPort: *col, AppPort: *app,
 	})
 	if err != nil {

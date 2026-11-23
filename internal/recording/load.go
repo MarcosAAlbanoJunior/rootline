@@ -8,13 +8,24 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
 )
 
 const customerCount = 20
 
-// DefaultLoad is the standard load: 200 requests at 50 per second to one route.
+// DefaultLoad is the load of a scenario without a load block (fixture.DefaultLoad).
 func DefaultLoad() LoadConfig {
-	return LoadConfig{Requests: 200, Rate: 50, Routes: []LoadRoute{{Route: "/customers/{id}/orders", Weight: 1}}}
+	return loadConfigOf(fixture.DefaultLoad())
+}
+
+// loadConfigOf converts the scenario's load block into the load the recording sends.
+func loadConfigOf(l fixture.Load) LoadConfig {
+	cfg := LoadConfig{Requests: l.Requests, Rate: l.RatePerSecond}
+	for _, r := range l.Routes {
+		cfg.Routes = append(cfg.Routes, LoadRoute{Route: r.Route, Weight: r.Weight})
+	}
+	return cfg
 }
 
 // RunLoad sends cfg.Requests GET requests at cfg.Rate per second. The cycle repeats each route

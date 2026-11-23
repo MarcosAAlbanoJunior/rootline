@@ -10,17 +10,28 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
 )
 
+// xLoad declares the route "/x" used by the symptom-only tests.
+const xLoad = `{"requests":1,"rate_per_second":1,"routes":[{"route":"/x","weight":1}]}`
+
 func scenarioJSON(symptom string) string {
-	return scenarioJSONWithAssumption(`"breaks something"`, symptom)
+	return scenarioJSONWithLoad(`"breaks something"`, symptom, xLoad)
 }
 
 // scenarioJSONWithAssumption takes the raw JSON value of "assumption"; empty omits the field.
 func scenarioJSONWithAssumption(assumption, symptom string) string {
-	field := ""
+	return scenarioJSONWithLoad(assumption, symptom, xLoad)
+}
+
+// scenarioJSONWithLoad takes the raw JSON values of "assumption" and "load"; empty omits the field.
+func scenarioJSONWithLoad(assumption, symptom, load string) string {
+	fields := ""
 	if assumption != "" {
-		field = `"assumption":` + assumption + `,`
+		fields += `"assumption":` + assumption + `,`
 	}
-	return `{"name":"n",` + field + `"commits":[{"label":"referencia"},{"label":"regressao","patch":"r.patch"}],
+	if load != "" {
+		fields += `"load":` + load + `,`
+	}
+	return `{"name":"n",` + fields + `"commits":[{"label":"referencia"},{"label":"regressao","patch":"r.patch"}],
 "answer":{"cause":"n_plus_one","function":"f","file":"a.go","marker":"// m","commit":"regressao"},
 "symptom":` + symptom + `}`
 }
@@ -40,7 +51,8 @@ func loadScenarioWith(t *testing.T, symptom string) (fixture.Scenario, error) {
 }
 
 func TestLoadScenario_SymptomBlockIsLoaded(t *testing.T) {
-	sc, err := loadScenarioWith(t, `{"service":"demo-app","method":"GET","route":"/customers/{id}/orders","route_source":"span_name","bad":"regressao","baseline":"referencia"}`)
+	symptom := `{"service":"demo-app","method":"GET","route":"/customers/{id}/orders","route_source":"span_name","bad":"regressao","baseline":"referencia"}`
+	sc, err := loadScenarioJSON(t, scenarioJSONWithLoad(`"breaks something"`, symptom, ""))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,14 +41,36 @@ type Symptom struct {
 	Baseline    string `json:"baseline"`
 }
 
+// Load is the load the recording sends to each version: Requests GET requests at RatePerSecond,
+// spread over Routes by weight.
+type Load struct {
+	Requests      int         `json:"requests"`
+	RatePerSecond int         `json:"rate_per_second"`
+	Routes        []LoadRoute `json:"routes"`
+}
+
+// LoadRoute is one route pattern of the load ("{id}" is replaced by a customer id) and its weight.
+type LoadRoute struct {
+	Route  string `json:"route"`
+	Weight int    `json:"weight"`
+}
+
+// DefaultLoad is the load of a scenario without a load block: 200 requests at 50 per second to
+// the orders route.
+func DefaultLoad() Load {
+	return Load{Requests: 200, RatePerSecond: 50, Routes: []LoadRoute{{Route: "/customers/{id}/orders", Weight: 1}}}
+}
+
 // Scenario is the content of scenario.json. Assumption is the detector or location assumption the
 // scenario breaks; a scenario that breaks none only inflates the scoreboard, so it is required.
+// Load is the declared load block, or DefaultLoad when the block is absent.
 type Scenario struct {
 	Name       string           `json:"name"`
 	Assumption string           `json:"assumption"`
 	Commits    []ScenarioCommit `json:"commits"`
 	Answer     ScenarioAnswer   `json:"answer"`
 	Symptom    Symptom          `json:"symptom"`
+	Load       Load             `json:"load"`
 }
 
 // LoadScenario reads <dir>/scenario.json.
@@ -57,9 +79,17 @@ func LoadScenario(dir string) (Scenario, error) {
 	if err != nil {
 		return Scenario{}, err
 	}
-	var sc Scenario
-	if err := json.Unmarshal(data, &sc); err != nil {
+	var raw struct {
+		Scenario
+		Load *Load `json:"load"` // nil = no block, which is not the same as an empty block
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json: %w", err)
+	}
+	sc := raw.Scenario
+	sc.Load = DefaultLoad()
+	if raw.Load != nil {
+		sc.Load = *raw.Load
 	}
 	if sc.Name == "" || len(sc.Commits) == 0 || sc.Answer.Marker == "" || sc.Answer.File == "" {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s is incomplete", dir)
@@ -67,10 +97,47 @@ func LoadScenario(dir string) (Scenario, error) {
 	if strings.TrimSpace(sc.Assumption) == "" {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: assumption is empty (declare which assumption the scenario breaks)", dir)
 	}
+	if err := sc.Load.validate(); err != nil {
+		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
+	}
 	if err := sc.validateSymptom(); err != nil {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
 	}
 	return sc, nil
+}
+
+func (l Load) validate() error {
+	if l.Requests <= 0 {
+		return fmt.Errorf("load.requests is %d (must be > 0)", l.Requests)
+	}
+	if l.RatePerSecond <= 0 {
+		return fmt.Errorf("load.rate_per_second is %d (must be > 0)", l.RatePerSecond)
+	}
+	if len(l.Routes) == 0 {
+		return fmt.Errorf("load.routes is empty")
+	}
+	seen := map[string]bool{}
+	for i, r := range l.Routes {
+		switch {
+		case !strings.HasPrefix(r.Route, "/"):
+			return fmt.Errorf("load.routes[%d].route %q does not start with /", i, r.Route)
+		case seen[r.Route]:
+			return fmt.Errorf("load.routes[%d].route %q is repeated", i, r.Route)
+		case r.Weight <= 0:
+			return fmt.Errorf("load.routes[%d].weight is %d (must be > 0)", i, r.Weight)
+		}
+		seen[r.Route] = true
+	}
+	return nil
+}
+
+func (l Load) hasRoute(route string) bool {
+	for _, r := range l.Routes {
+		if r.Route == route {
+			return true
+		}
+	}
+	return false
 }
 
 func (sc Scenario) validateSymptom() error {
@@ -84,6 +151,9 @@ func (sc Scenario) validateSymptom() error {
 		return fmt.Errorf("symptom.route is empty")
 	case sy.Bad == "":
 		return fmt.Errorf("symptom.bad is empty")
+	}
+	if !sc.Load.hasRoute(sy.Route) {
+		return fmt.Errorf("symptom.route %q is not a route of the load", sy.Route)
 	}
 	if !sc.hasLabel(sy.Bad) {
 		return fmt.Errorf("symptom.bad %q is not a commit label", sy.Bad)

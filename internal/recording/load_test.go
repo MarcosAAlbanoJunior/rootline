@@ -129,15 +129,23 @@ func TestRunLoad_RejectsALoadWithoutRoutesOrWithANonPositiveWeight(t *testing.T)
 	}
 }
 
-// An invalid load fails before anything is generated or started (no Docker needed to see it).
-func TestRecord_InvalidLoadFailsBeforeStartingAnything(t *testing.T) {
+// The load comes from the scenario: an invalid load block fails before anything is generated or
+// started (no Docker needed to see it).
+func TestRecord_InvalidScenarioLoadFailsBeforeStartingAnything(t *testing.T) {
+	scenario := t.TempDir()
+	body := `{"name":"n","assumption":"a","commits":[{"label":"referencia"}],
+"answer":{"cause":"n_plus_one","function":"f","file":"a.go","marker":"// m","commit":"referencia"},
+"symptom":{"service":"s","method":"GET","route":"/x","bad":"referencia"},
+"load":{"requests":100,"rate_per_second":20,"routes":[]}}`
+	if err := os.WriteFile(filepath.Join(scenario, "scenario.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(t.TempDir(), "rec")
 	err := recording.Record(context.Background(), recording.RecordOptions{
-		ScenarioDir: t.TempDir(), SourceDir: t.TempDir(), OutDir: out,
-		Load: recording.LoadConfig{Requests: 100, Rate: 20},
+		ScenarioDir: scenario, SourceDir: t.TempDir(), OutDir: out,
 	})
-	if err == nil || !strings.Contains(err.Error(), "no routes") {
-		t.Fatalf("err = %v, want an error about the load having no routes", err)
+	if err == nil || !strings.Contains(err.Error(), "load.routes") {
+		t.Fatalf("err = %v, want an error citing load.routes", err)
 	}
 	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
 		t.Fatalf("nothing must be created before the load is validated (stat %v)", statErr)

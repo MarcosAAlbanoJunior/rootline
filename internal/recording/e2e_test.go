@@ -41,7 +41,6 @@ func TestRecordAnalyzeScore_N1BasicEndToEnd(t *testing.T) {
 		ScenarioDir: filepath.Join(root, "eval", "fixtures", "scenarios", "n1-basic"),
 		SourceDir:   root,
 		OutDir:      out,
-		Load:        recording.DefaultLoad(),
 	})
 	if err != nil {
 		t.Fatal(err)

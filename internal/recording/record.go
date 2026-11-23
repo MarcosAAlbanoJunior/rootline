@@ -26,16 +26,15 @@ const (
 	DefaultAppPort       = 58080
 )
 
-// RecordOptions configures Record.
+// RecordOptions configures Record. The load is not an option: it comes from the scenario.
 type RecordOptions struct {
 	ScenarioDir, SourceDir, OutDir       string
-	Load                                 LoadConfig
 	PostgresPort, CollectorPort, AppPort int // 0 = default
 }
 
-// Record generates <OutDir>/repo, builds and runs every commit under the fixed load, and writes
-// <OutDir>/traces.jsonl and <OutDir>/manifest.json. It always records from scratch and fails if
-// OutDir exists and is not empty.
+// Record generates <OutDir>/repo, builds and runs every commit under the scenario's load, and
+// writes <OutDir>/traces.jsonl and <OutDir>/manifest.json. It always records from scratch and
+// fails if OutDir exists and is not empty.
 func Record(ctx context.Context, opts RecordOptions) (err error) {
 	if opts.PostgresPort == 0 {
 		opts.PostgresPort = DefaultPostgresPort
@@ -46,21 +45,16 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 	if opts.AppPort == 0 {
 		opts.AppPort = DefaultAppPort
 	}
-	if opts.Load.Requests == 0 && opts.Load.Rate == 0 && len(opts.Load.Routes) == 0 {
-		opts.Load = DefaultLoad()
+	sc, err := fixture.LoadScenario(opts.ScenarioDir) // validates the load before anything starts
+	if err != nil {
+		return err
 	}
-	if _, err := opts.Load.cycle(); err != nil {
-		return err // before generating or starting anything
-	}
+	load := loadConfigOf(sc.Load)
 	if _, lookErr := exec.LookPath("docker"); lookErr != nil {
 		return errors.New("recording: docker is required to record a scenario")
 	}
 
 	gen, err := fixture.Generate(fixture.Options{ScenarioDir: opts.ScenarioDir, SourceDir: opts.SourceDir, OutDir: opts.OutDir})
-	if err != nil {
-		return err
-	}
-	sc, err := fixture.LoadScenario(opts.ScenarioDir)
 	if err != nil {
 		return err
 	}
@@ -91,7 +85,7 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 	}()
 
 	for _, c := range gen.Commits {
-		if err := runVersion(ctx, opts, binaries[c.SHA], c.SHA); err != nil {
+		if err := runVersion(ctx, opts, load, binaries[c.SHA], c.SHA); err != nil {
 			return fmt.Errorf("recording: version %s (%s): %w", c.Label, c.SHA, err)
 		}
 	}
@@ -102,12 +96,13 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 		return fmt.Errorf("recording: collector wrote no traces file: %w", err)
 	}
 
-	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), buildManifest(sc, gen, opts.Load))
+	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), buildManifest(sc, gen))
 }
 
-// buildManifest describes a recording: scenario, symptom, commits, answer key, seed and load.
-func buildManifest(sc fixture.Scenario, gen fixture.Generated, load LoadConfig) Manifest {
-	m := Manifest{Scenario: sc.Name, AnswerKey: gen.AnswerKey, Seed: SeedID, Load: load, Symptom: sc.Symptom}
+// buildManifest describes a recording: scenario, symptom, commits, answer key, seed and the
+// scenario's load.
+func buildManifest(sc fixture.Scenario, gen fixture.Generated) Manifest {
+	m := Manifest{Scenario: sc.Name, AnswerKey: gen.AnswerKey, Seed: SeedID, Load: loadConfigOf(sc.Load), Symptom: sc.Symptom}
 	for _, c := range gen.Commits {
 		m.Commits = append(m.Commits, CommitRef{Label: c.Label, SHA: c.SHA})
 	}
@@ -258,7 +253,7 @@ func (s *stack) down() error {
 }
 
 // runVersion starts one demo-app, waits for /healthz, runs the load and stops it with SIGINT.
-func runVersion(ctx context.Context, opts RecordOptions, bin, sha string) error {
+func runVersion(ctx context.Context, opts RecordOptions, load LoadConfig, bin, sha string) error {
 	base := "http://127.0.0.1:" + strconv.Itoa(opts.AppPort)
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
@@ -291,7 +286,7 @@ func runVersion(ctx context.Context, opts RecordOptions, bin, sha string) error 
 		_ = stop()
 		return fmt.Errorf("%w\n%s", err, logs.String())
 	}
-	loadErr := RunLoad(ctx, base, opts.Load)
+	loadErr := RunLoad(ctx, base, load)
 	stopErr := stop()
 	if loadErr != nil {
 		return fmt.Errorf("%w\n%s", loadErr, logs.String())
