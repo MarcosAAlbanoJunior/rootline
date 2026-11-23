@@ -1,12 +1,3 @@
-// Expected API (package evaluation):
-//
-//	type Scoreboard map[string]Score // key: mode, e.g. "detectors_only"
-//	// JSON: {"detectors_only": {"cause": {"hits": n, "total": n}, "line": {...}, "commit": {...}, "strict": {...}}}
-//	func ReadScoreboard(r io.Reader) (Scoreboard, error)
-//	func WriteScoreboard(w io.Writer, sb Scoreboard) error
-//	// Regressions lists "<mode>.<metric>" (e.g. "detectors_only.cause") for each metric where hits
-//	// dropped while total is the same as in the baseline. Different denominators are not compared.
-//	func Regressions(baseline, current Scoreboard) []string
 package evaluation_test
 
 import (
@@ -25,7 +16,7 @@ func sb(c, l, m, s evaluation.Metric) evaluation.Scoreboard {
 
 var one = evaluation.Metric{Hits: 1, Total: 1}
 
-func TestAC37_ScoreboardJSONShapeAndRoundTrip(t *testing.T) {
+func TestScoreboard_JSONShapeAndRoundTrip(t *testing.T) {
 	in := sb(one, one, one, one)
 	var buf bytes.Buffer
 	if err := evaluation.WriteScoreboard(&buf, in); err != nil {
@@ -47,7 +38,7 @@ func TestAC37_ScoreboardJSONShapeAndRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAC37_Regressions(t *testing.T) {
+func TestRegressions_FlagsDroppedHitsWithTheSameTotal(t *testing.T) {
 	zero1 := evaluation.Metric{Hits: 0, Total: 1}
 	tests := []struct {
 		name      string

@@ -1,16 +1,3 @@
-// Expected API (package trace, stdlib only):
-//
-//	type Span struct {
-//	    TraceID, SpanID, ParentSpanID, Name string
-//	    Kind    int            // OTLP span kind: 1 internal, 2 server, 3 client
-//	    Scope   string         // instrumentation scope name
-//	    Start, End time.Time
-//	    Attrs   map[string]any // values: string, int64, bool, []string
-//	    Service, Version string // resource attrs service.name / service.version
-//	}
-//	type Operation struct { Method, Route, RouteSource string }
-//	const RouteSourceAttribute = "attribute"; RouteSourceSpanName = "span_name"
-//	func OperationOf(s Span) (Operation, bool)   // entry operation of a server span
 package trace_test
 
 import (
@@ -19,7 +6,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
-func TestAC20_OperationFromHTTPRouteAttribute(t *testing.T) {
+func TestOperationOf_FromHTTPRouteAttribute(t *testing.T) {
 	s := trace.Span{
 		Kind: 2,
 		Name: "anything at all",
@@ -38,7 +25,7 @@ func TestAC20_OperationFromHTTPRouteAttribute(t *testing.T) {
 	}
 }
 
-func TestAC20_OperationFromSpanName(t *testing.T) {
+func TestOperationOf_FromSpanName(t *testing.T) {
 	for _, m := range []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"} {
 		t.Run(m, func(t *testing.T) {
 			op, ok := trace.OperationOf(trace.Span{Kind: 2, Name: m + " /customers/{id}/orders"})
@@ -53,7 +40,7 @@ func TestAC20_OperationFromSpanName(t *testing.T) {
 	}
 }
 
-func TestAC20_SpanNamesThatProduceNoOperation(t *testing.T) {
+func TestOperationOf_SpanNamesThatProduceNoOperation(t *testing.T) {
 	for _, name := range []string{"server", "get /x", "FOO /x", "GET x", "GET", "", "/x", "GET  /x extra", "GET/x"} {
 		t.Run(name, func(t *testing.T) {
 			if op, ok := trace.OperationOf(trace.Span{Kind: 2, Name: name}); ok {

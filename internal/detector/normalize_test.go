@@ -1,8 +1,3 @@
-// Expected API (package detector, stdlib + internal domain only):
-//
-//	func Normalize(sql string) string
-//
-// Slice-1 normalization: whitespace runs collapsed to one space, trimmed, no trailing ";".
 package detector_test
 
 import (

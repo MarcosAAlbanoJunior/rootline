@@ -1,10 +1,4 @@
-// Slice 2, AC13: the detector exports the span phase classification.
-//
-// Expected API (package detector):
-//
-//	type Phase int
-//	const ( PhaseNone Phase = iota; PhaseQuery; PhasePrepare )
-//	func PhaseOf(s trace.Span) Phase
+// The detector exports the span phase classification.
 package detector_test
 
 import (
@@ -14,7 +8,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
-func TestAC13_PhaseOf(t *testing.T) {
+func TestPhaseOf_ClassifiesDatabaseSpans(t *testing.T) {
 	notDB := dbSpan("t", "s", "p", 0, itemsQuery, 1)
 	delete(notDB.Attrs, "db.query.text")
 

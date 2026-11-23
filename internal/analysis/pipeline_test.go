@@ -1,30 +1,4 @@
-// Expected API (package analysis; imports only stdlib and internal domain packages):
-//
-//	type TraceSource interface { Spans() ([]trace.Span, error) }  // all spans of the file (any service/version/trace)
-//	type CodeIndex interface {
-//	    InLoop(sha, file string, line int) (bool, error)
-//	    FuncRange(sha, file, function string) (start, end int, found bool, err error)
-//	}
-//	type Git interface {
-//	    ResolvePath(sha, modulePath, relFile string) (string, error)
-//	    RevList(base, bad string) ([]string, error)
-//	    ChangedLines(commit string) (map[string][][2]int, error)
-//	}
-//	type Symptom struct {
-//	    Service string; Operation trace.Operation
-//	    BadVersion, BaselineVersion string // BaselineVersion "" = no reference
-//	}
-//	// Analyze builds the Result. json.Marshal(Result) must match the "Formato minimo do Resultado"
-//	// of the spec (keys in English, snake_case). Result is compared here only through its JSON form.
-//	func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
-//
-// Result JSON (this test relies on): schema_version "0", mode "detectors_only", symptom{service,
-// operation{method,route,route_source}, bad_version, baseline_version|null}, status, cause|null
-// {candidate_id,type,confidence,location{level,function,file,line,in_loop},commit{sha,touch}|null},
-// candidates[]{id,type,score,confidence,location,evidence[]}, evidence[] (repeated_query,
-// stack_touch, symptom_stats), observations[], warnings[]. Candidate score = detector score
-// (traces_affected/traces_total + 0.5 plus-one) + 0.5 commit touch on the location function or +0.25
-// touch on another stack frame.
+// Result is compared here only through its JSON form, the output contract of the CLI.
 package analysis_test
 
 import (
@@ -191,7 +165,7 @@ func evidenceOfKind(t *testing.T, m map[string]any, kind string) []map[string]an
 
 var touchingService = fakeGit{changes: map[string][][2]int{svcFile: {{40, 44}}}}
 
-func TestAC34_CauseFoundWithCommit(t *testing.T) {
+func TestAnalyze_CauseFoundWithCommit(t *testing.T) {
 	m := run(t, allSpans(4, 4, badTrace), touchingService, symptom)
 
 	if m["schema_version"] != "0" || m["mode"] != "detectors_only" || m["status"] != "cause_found" {
@@ -268,7 +242,7 @@ func TestAC34_CauseFoundWithCommit(t *testing.T) {
 	}
 }
 
-func TestAC34_CauseWithoutReference(t *testing.T) {
+func TestAnalyze_CauseWithoutReference(t *testing.T) {
 	s := symptom
 	s.BaselineVersion = ""
 	m := run(t, allSpans(4, 0, badTrace), touchingService, s)
@@ -294,7 +268,7 @@ func TestAC34_CauseWithoutReference(t *testing.T) {
 	}
 }
 
-func TestAC34_NoCandidateIsInconclusive(t *testing.T) {
+func TestAnalyze_NoCandidateIsInconclusive(t *testing.T) {
 	m := run(t, allSpans(4, 4, healthyOnBadVersion), touchingService, symptom)
 
 	if m["status"] != "inconclusive" {
@@ -313,7 +287,7 @@ func healthyOnBadVersion(id string) []trace.Span {
 	return []trace.Span{srv, query(id, id+"-a", srv.SpanID, 100, orders, 10), query(id, id+"-b", srv.SpanID, 200, items, 30)}
 }
 
-func TestAC33_NoTouchKeepsCandidateWithoutCommitBonus(t *testing.T) {
+func TestAnalyze_NoTouchKeepsCandidateWithoutCommitBonus(t *testing.T) {
 	m := run(t, allSpans(4, 4, badTrace), fakeGit{changes: map[string][][2]int{"demo-app/README.md": {{1, 9}}}}, symptom)
 
 	cause := obj(t, m["cause"])
@@ -328,7 +302,7 @@ func TestAC33_NoTouchKeepsCandidateWithoutCommitBonus(t *testing.T) {
 	}
 }
 
-func TestAC33_StackOnlyTouchAddsQuarterBonus(t *testing.T) {
+func TestAnalyze_StackOnlyTouchAddsQuarterBonus(t *testing.T) {
 	m := run(t, allSpans(4, 4, badTrace), fakeGit{changes: map[string][][2]int{repoFile: {{31, 31}}}}, symptom)
 
 	commit := obj(t, obj(t, m["cause"])["commit"])

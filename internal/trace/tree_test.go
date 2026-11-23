@@ -1,9 +1,3 @@
-// Expected API (package trace):
-//
-//	func NewTree(spans []Span) *Tree          // spans of ONE trace
-//	func (t *Tree) Root(service string) (Span, bool)   // server span (kind 2) with no parent in the same service
-//	func (t *Tree) Children(spanID string) []Span      // ordered by Start
-//	func (t *Tree) Parent(spanID string) (Span, bool)
 package trace_test
 
 import (
@@ -15,7 +9,7 @@ import (
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func TestAC21_TreeLinksChildrenAndFindsServerRoot(t *testing.T) {
+func TestNewTree_LinksChildrenAndFindsServerRoot(t *testing.T) {
 	spans := []trace.Span{
 		{TraceID: "t", SpanID: "g", Service: "gateway", Kind: 3, Name: "call", Start: t0},
 		{TraceID: "t", SpanID: "s", ParentSpanID: "g", Service: "demo-app", Kind: 2, Name: "GET /x", Start: t0.Add(1 * time.Millisecond)},
