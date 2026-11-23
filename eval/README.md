@@ -3,7 +3,7 @@
 Cada cenário em `fixtures/scenarios/<nome>/` vira um repo de fixture com commits reais
 ([ADR-0004](../docs/adr/0004-cenarios-de-avaliacao-como-commits-reais.md)). O placar (`placar.json`)
 guarda o resultado do modo só-detectores na `main` e é o portão dos PRs
-([ADR-0009](../docs/adr/0009-pontuacao-da-avaliacao.md)).
+([ADR-0026](../docs/adr/0026-pontuacao-com-alvo-da-causa.md)).
 
 ## Regra dos cenários
 

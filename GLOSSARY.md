@@ -7,6 +7,14 @@ Resultado "inconclusivo" num cenário cujo gabarito tem resposta. Reportada semp
 métrica de alucinação.
 - No código: `UnwarrantedAbstention`
 
+
+## Alvo da causa
+O "o quê" de uma causa além da função, quando o tipo tem um e ele vem de um campo estruturado da
+evidência. No índice faltando, é a tabela do nó do plano; no N+1, não há alvo. Entra na métrica
+Causa junto com o tipo e a função. Um alvo que só existe em texto (ex.: a coluna dentro do filtro)
+fica como evidência, fora da métrica.
+- Relacionados: [Índice faltando](#índice-faltando), [Gabarito](#gabarito), [ADR-0026](docs/adr/0026-pontuacao-com-alvo-da-causa.md)
+
 ## Candidata
 Hipótese de causa raiz emitida por um detector na fase 1, com suas evidências e um score determinístico.
 - Evitar: "suspeita", "hipótese" (solto), "achado" (achado é o resultado final).
@@ -52,8 +60,19 @@ contagem, trecho de código (arquivo:linha), trecho de diff, plano de execução
 ## Índice de código
 Mapa do código de uma versão, construído no SHA dela (lido do git): intervalo de linhas por função,
 loops, rotas → handlers e strings SQL. Na v1, `go/parser` + `go/ast`.
+- Evitar: "índice" solto, que também pode ler como o índice do banco do [Índice faltando](#índice-faltando).
 - Relacionados: [ADR-0007](docs/adr/0007-go-com-cgo-isolado-e-indice-go-ast.md)
 - No código: `CodeIndex`
+
+
+## Índice faltando
+Causa em que uma query lê uma tabela grande inteira para devolver poucas linhas, porque nenhum índice
+cobre o filtro. É reconhecida só pelo plano de execução: Seq Scan (ou Parallel Seq Scan) com filtro
+seletivo numa tabela grande, sem tempo no critério. O alvo é a tabela.
+- Evitar: "índice" solto, porque no Rootline "índice" sozinho também nomeia o índice de código.
+  Use "índice faltando" ou "índice do banco" para este sentido.
+- Relacionados: [Plano de execução](#plano-de-execução), [Alvo da causa](#alvo-da-causa), [ADR-0023](docs/adr/0023-indice-faltando-pelo-plano-de-execucao.md)
+- No código: tipo de causa `missing_index`
 
 ## Inconclusivo
 Resultado obrigatório quando nenhuma conclusão pode ser sustentada por evidências válidas, inclusive
@@ -65,7 +84,7 @@ quando o LLM cita um ID de evidência inexistente ou não cita nenhum. Pode vir 
 Detector que classifica errado um distrator (ex.: paginação como N+1). Separado da alucinação. Conta
 os cenários com distrator em que alguma candidata do Resultado casa com ele: arquivo:linha no nível 1,
 função no nível 2. Para esta métrica, menos é melhor, e o portão do placar reprova quando ela sobe.
-- Relacionados: [Distrator](#distrator), [ADR-0009](docs/adr/0009-pontuacao-da-avaliacao.md), [ADR-0022](docs/adr/0022-distrator-declarado-no-cenario.md)
+- Relacionados: [Distrator](#distrator), [ADR-0026](docs/adr/0026-pontuacao-com-alvo-da-causa.md), [ADR-0022](docs/adr/0022-distrator-declarado-no-cenario.md)
 - No código: `DetectorFalsePositive` (`detector_false_positive` no placar)
 
 ## Forma de paginação
@@ -79,7 +98,8 @@ detector a descarta e registra a observação `pagination_shape:`.
 ## Gabarito
 Resultado esperado de um cenário: causa (ou inconclusivo), localização e commit por rótulo
 (`referencia`, `regressao`, `distrator`), nunca por SHA. Quando o cenário tem distratores de código,
-o gabarito também guarda a função, o arquivo e a linha de cada um no commit ruim.
+o gabarito também guarda a função, o arquivo e a linha de cada um no commit ruim. Quando o tipo de
+causa tem alvo, o gabarito guarda o alvo (ex.: a tabela no índice faltando).
 - Evitar: "resposta esperada", "expected" (soltos).
 - No código: `AnswerKey`
 
@@ -102,6 +122,8 @@ handler ("aproximada", sem linha). Se o loop foi achado, quem diz é `in_loop` e
 exemplo `loop_not_found`), não o nível: sem frame em loop, a localização continua no nível 1
 ([ADR-0017](docs/adr/0017-localizacao-sem-frame-em-loop.md)). A função é a declarada, sem os
 sufixos sintéticos `-rangeN` (corpo de range-over-func) e `.funcN` (closure) ([ADR-0019](docs/adr/0019-funcao-declarada-no-lugar-de-nomes-sinteticos.md)).
+Cada tipo de causa escolhe a regra do nível 1: o N+1 procura o primeiro frame em loop; o índice
+faltando usa o frame mais interno, onde a query é emitida, sem regra do loop ([ADR-0024](docs/adr/0024-localizacao-por-tipo-de-causa.md)).
 - Relacionados: [Evidência](#evidência), [ADR-0002](docs/adr/0002-localizacao-de-queries-no-codigo.md)
 - No código: `Location`, com `LocationLevel`
 
@@ -146,6 +168,15 @@ o marcador do gabarito.
 Resultado do modo só-detectores na `main`, versionado em `eval/placar.json`; portão dos PRs.
 - Evitar: "resultado de referência" (colide com [Referência](#referência)).
 - No código: `Scoreboard` (`eval/placar.json`)
+
+
+## Plano de execução
+Como o Postgres pretende executar uma query, obtido com `EXPLAIN (GENERIC_PLAN, FORMAT JSON)` sem
+`ANALYZE`, junto com o tamanho estimado (`reltuples`) das tabelas do plano. Na avaliação, vem
+gravado por versão; no uso real, viria do adapter ao vivo. É estimativa do planner, não medição.
+- Evitar: "explain" solto como substantivo.
+- Relacionados: [Índice faltando](#índice-faltando), [Gravação](#gravação), [ADR-0012](docs/adr/0012-explain-query-gravado-e-ao-vivo.md), [ADR-0025](docs/adr/0025-planos-gravados-por-versao.md)
+- No código: porta `Explainer`; arquivo `plans.jsonl` na gravação
 
 ## Pilha da aplicação
 Os frames de uma pilha de chamadas que pertencem ao módulo do serviço analisado, sem stdlib nem

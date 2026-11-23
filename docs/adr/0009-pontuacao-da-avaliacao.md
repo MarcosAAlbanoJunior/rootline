@@ -1,7 +1,7 @@
 ---
 id: ADR-0009
 title: Pontuar a avaliação por dimensão, com denominadores explícitos e alucinação ao lado da abstenção
-status: Aceito
+status: Substituído por ADR-0026
 date: 2026-11-22
 summary: Métricas Causa, Linha, Commit, Estrito, Alucinação, Abstenção indevida e Falso positivo de detector, sempre em contagem/porcentagem com denominador; LLM com N=5, modelo fixado, consistência e custo; portão de PR contra placar versionado; conjunto reservado especificado pelo mantenedor e implementado por sessão sem acesso aos detectores.
 modules: [eval, ci]
