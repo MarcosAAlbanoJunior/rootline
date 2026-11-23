@@ -140,12 +140,15 @@ func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 		fmt.Fprintf(stderr, "rootline-eval: %v\n", err)
 		return 1
 	}
-	s := current["detectors_only"]
-	fmt.Fprintf(stdout, "detectors_only\n  Causa:  %s\n  Linha:  %s\n  Commit: %s\n  Estrito: %s\n", s.Cause, s.Line, s.Commit, s.Strict)
-	fmt.Fprintf(stdout, "  Níveis da Linha: 1=%d 2=%d ausente=%d\n", s.LineLevels.Level1, s.LineLevels.Level2, s.LineLevels.None)
+	baseline, baseErr := readScoreboardFile(*placar)
+	printScore(stdout, current["detectors_only"], baseline["detectors_only"], baseErr == nil)
 
 	if *update {
-		warnRegressionsBeforeUpdate(*placar, current, stderr)
+		if baseErr == nil {
+			for _, r := range evaluation.Regressions(baseline, current) {
+				fmt.Fprintf(stderr, "rootline-eval: warning: updating over a regression in %s\n", r)
+			}
+		}
 		if err := writeScoreboardAtomically(*placar, current); err != nil {
 			fmt.Fprintf(stderr, "rootline-eval: %v\n", err)
 			return 1
@@ -154,15 +157,8 @@ func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 		return 0
 	}
 
-	f, err := os.Open(*placar)
-	if err != nil {
-		fmt.Fprintf(stderr, "rootline-eval: %v\n", err)
-		return 1
-	}
-	defer func() { _ = f.Close() }() // read-only
-	baseline, err := evaluation.ReadScoreboard(f)
-	if err != nil {
-		fmt.Fprintf(stderr, "rootline-eval: %s: %v\n", *placar, err)
+	if baseErr != nil {
+		fmt.Fprintf(stderr, "rootline-eval: %v\n", baseErr)
 		return 1
 	}
 	if reg := evaluation.Regressions(baseline, current); len(reg) > 0 {
@@ -174,7 +170,51 @@ func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 	return 0
 }
 
-// scoreRecordings analyzes every recording under dir and accumulates the detectors-only score.
+// readScoreboardFile reads the scoreboard at path; a parse error names the file.
+func readScoreboardFile(path string) (evaluation.Scoreboard, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err // already carries the path
+	}
+	defer func() { _ = f.Close() }() // read-only
+	sb, err := evaluation.ReadScoreboard(f)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return sb, nil
+}
+
+// printScore prints the aggregate lines and then one line per scenario, alphabetically. With a
+// readable scoreboard (hasBaseline), a scenario it does not have ends with " (novo)".
+func printScore(w io.Writer, s, base evaluation.Score, hasBaseline bool) {
+	fmt.Fprintf(w, "detectors_only\n  Causa:  %s\n  Linha:  %s\n  Commit: %s\n  Estrito: %s\n", s.Cause, s.Line, s.Commit, s.Strict)
+	fmt.Fprintf(w, "  Níveis da Linha: 1=%d 2=%d ausente=%d\n", s.LineLevels.Level1, s.LineLevels.Level2, s.LineLevels.None)
+	names := make([]string, 0, len(s.Scenarios))
+	for name := range s.Scenarios {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		o := s.Scenarios[name]
+		suffix := ""
+		if _, known := base.Scenarios[name]; hasBaseline && !known {
+			suffix = " (novo)"
+		}
+		fmt.Fprintf(w, "  %s: Causa=%s Linha=%s Commit=%s Estrito=%s Nível=%d%s\n",
+			name, okOrError(o.Cause), okOrError(o.Line), okOrError(o.Commit), okOrError(o.Strict), o.LineLevel, suffix)
+	}
+}
+
+func okOrError(hit bool) string {
+	if hit {
+		return "ok"
+	}
+	return "erro"
+}
+
+// scoreRecordings analyzes every recording under dir and returns the detectors-only score per
+// scenario (the name in the manifest). Two recordings of the same scenario are an error, found
+// before any analysis runs.
 func scoreRecordings(dir string) (evaluation.Scoreboard, error) {
 	manifests, err := filepath.Glob(filepath.Join(dir, "*", "manifest.json"))
 	if err != nil {
@@ -187,15 +227,29 @@ func scoreRecordings(dir string) (evaluation.Scoreboard, error) {
 		return nil, fmt.Errorf("no recordings (manifest.json) under %s", dir)
 	}
 	sort.Strings(manifests)
-	var total evaluation.Score
-	for _, mp := range manifests {
-		o, err := scoreOne(filepath.Dir(mp))
+	recOf := map[string]string{} // scenario name -> recording directory
+	loaded := make([]recording.Manifest, len(manifests))
+	for i, mp := range manifests {
+		m, err := recording.ReadManifest(mp)
 		if err != nil {
-			return nil, err // scoreOne already names the recording
+			return nil, err // the open/parse error already carries the path
 		}
-		total.Add(o)
+		rec := filepath.Dir(mp)
+		if other, dup := recOf[m.Scenario]; dup {
+			return nil, fmt.Errorf("scenario %q is recorded twice: %s and %s", m.Scenario, other, rec)
+		}
+		recOf[m.Scenario], loaded[i] = rec, m
 	}
-	return evaluation.Scoreboard{"detectors_only": total}, nil
+	outcomes := map[string]evaluation.Outcome{}
+	for i, mp := range manifests {
+		rec := filepath.Dir(mp)
+		o, err := scoreManifest(rec, loaded[i], analyzeRecording)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", rec, err)
+		}
+		outcomes[loaded[i].Scenario] = o
+	}
+	return evaluation.Scoreboard{"detectors_only": evaluation.ScoreScenarios(outcomes)}, nil
 }
 
 func fileExists(p string) bool {
@@ -214,19 +268,6 @@ func analyzeRecording(rec string, s analysis.Symptom) (analysis.Result, error) {
 	}
 	git := gitcli.New(filepath.Join(rec, "repo"))
 	return analysis.Analyze(fileSource(spans), goindex.New(git), git, s)
-}
-
-// scoreOne scores one recording; every error names the recording directory once.
-func scoreOne(rec string) (evaluation.Outcome, error) {
-	m, err := recording.ReadManifest(filepath.Join(rec, "manifest.json"))
-	if err != nil {
-		return evaluation.Outcome{}, err // the open/parse error already carries the path
-	}
-	o, err := scoreManifest(rec, m, analyzeRecording)
-	if err != nil {
-		return evaluation.Outcome{}, fmt.Errorf("%s: %w", rec, err)
-	}
-	return o, nil
 }
 
 // scoreManifest builds the Symptom from the manifest, runs the analysis and scores the Result
@@ -332,21 +373,4 @@ func foundFromResult(res analysis.Result) evaluation.Found {
 		found.CommitSHA = res.Cause.Commit.SHA
 	}
 	return found
-}
-
-// warnRegressionsBeforeUpdate tells the user when --update is about to lock in a regression
-// against the existing scoreboard (readable or not, the update still proceeds).
-func warnRegressionsBeforeUpdate(path string, current evaluation.Scoreboard, stderr io.Writer) {
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer func() { _ = f.Close() }() // read-only
-	old, err := evaluation.ReadScoreboard(f)
-	if err != nil {
-		return
-	}
-	for _, r := range evaluation.Regressions(old, current) {
-		fmt.Fprintf(stderr, "rootline-eval: warning: updating over a regression in %s\n", r)
-	}
 }
