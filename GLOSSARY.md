@@ -76,8 +76,12 @@ Vale igualmente para todas as queries; não é um span manual. Também marca a f
 - No código: módulo `hook/`, pacote `callerhook`
 
 ## Localização
-Ponto do código responsável por uma evidência (função e, se possível, arquivo:linha), com nível:
-1 (pilha da aplicação no span de banco) ou 2 (rota HTTP → handler, "aproximada", sem linha).
+Ponto do código responsável por uma evidência (função e, se possível, arquivo:linha), com nível.
+O nível diz só a procedência: 1 = pilha da aplicação no span de banco (exata); 2 = rota HTTP →
+handler ("aproximada", sem linha). Se o loop foi achado, quem diz é `in_loop` e os avisos (por
+exemplo `loop_not_found`), não o nível: sem frame em loop, a localização continua no nível 1
+([ADR-0017](docs/adr/0017-localizacao-sem-frame-em-loop.md)). A função é a declarada, sem o
+sufixo `-rangeN` de corpo de range-over-func ([ADR-0016](docs/adr/0016-funcao-declarada-no-lugar-do-corpo-range-over-func.md)).
 - Relacionados: [Evidência](#evidência), [ADR-0002](docs/adr/0002-localizacao-de-queries-no-codigo.md)
 - No código: `Location`, com `LocationLevel`
 
@@ -101,6 +105,13 @@ O span raiz do serviço para uma requisição ou unidade de trabalho. Na v1, só
 `http.route`); filas e jobs entram depois como novos tipos.
 - Evitar: "endpoint" no modelo de domínio (é só o caso HTTP).
 - No código: `EntryOperation`
+
+## Patch de preparação
+Patch aplicado no commit `referencia` de um cenário para trazer o código pré-existente que ele precisa
+(um pacote, uma rota), mantendo o demo-app base mínimo. De preferência só arquivos novos; nunca contém
+o marcador do gabarito.
+- Relacionados: [Cenário](#cenário), `eval/README.md`
+- No código: `ScenarioCommit.Patch` do primeiro commit
 
 ## Placar
 Resultado do modo só-detectores na `main`, versionado em `eval/placar.json`; portão dos PRs.
@@ -128,3 +139,9 @@ com amostra mínima) ou ausente. Define o início do intervalo do diff.
 Entrada da análise: serviço + operação de entrada + janela ruim (de versão única, ou filtrada por
 `--bad-version`). Na v1, só latência.
 - No código: `Symptom`
+
+## Suposição do cenário
+A suposição do detector ou da localização que um cenário quebra (ex.: "o loop está no frame logo acima
+da query"). Obrigatória em todo cenário: cenário que não quebra nada só infla o placar.
+- Relacionados: [Cenário](#cenário), `eval/README.md`
+- No código: `Scenario.Assumption` (`assumption` no `scenario.json`)
