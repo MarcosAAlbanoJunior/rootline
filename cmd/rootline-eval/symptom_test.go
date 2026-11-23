@@ -1,11 +1,5 @@
-// Slice 2, AC19 to AC23 and AC28 for the rootline-eval command.
-//
-// Expected API (package main):
-//
-//	func symptomFromManifest(m recording.Manifest) (analysis.Symptom, error)
-//
-// scoreOne builds its Symptom through symptomFromManifest and analyzes through an injectable
-// analyzer (scoreManifest), so the seam is testable without a git repository. scoreOne itself must return the "symptom" error for a manifest without the block.
+// scoreManifest takes the analyzer as a parameter, so the symptom seam is tested without a git
+// repository.
 package main
 
 import (
@@ -32,7 +26,7 @@ func manifestWith(sym fixture.Symptom) recording.Manifest {
 	}
 }
 
-func TestAC22_SymptomComesFromTheManifest(t *testing.T) {
+func TestSymptomFromManifest_SymptomComesFromTheManifest(t *testing.T) {
 	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
 	got, err := symptomFromManifest(m)
 	if err != nil {
@@ -44,7 +38,7 @@ func TestAC22_SymptomComesFromTheManifest(t *testing.T) {
 	}
 }
 
-func TestAC20_EmptyBaselineGivesEmptyBaselineVersion(t *testing.T) {
+func TestSymptomFromManifest_EmptyBaselineGivesEmptyBaselineVersion(t *testing.T) {
 	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim"})
 	got, err := symptomFromManifest(m)
 	if err != nil {
@@ -55,7 +49,7 @@ func TestAC20_EmptyBaselineGivesEmptyBaselineVersion(t *testing.T) {
 	}
 }
 
-func TestAC21_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing.T) {
+func TestScoreOne_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing.T) {
 	rec := t.TempDir()
 	m := manifestWith(fixture.Symptom{})
 	if err := recording.WriteManifest(filepath.Join(rec, "manifest.json"), m); err != nil {
@@ -67,10 +61,10 @@ func TestAC21_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing.T) 
 	}
 }
 
-// AC19: scoring a recording uses only the manifest. With service, method, route source and labels
+// Scoring a recording uses only the manifest. With service, method, route source and labels
 // unlike the n1-basic ones, the analysis receives those values and the Result is scored against
 // the manifest's own labels.
-func TestAC19_ScoringUsesTheManifestSymptomAndLabels(t *testing.T) {
+func TestScoreManifest_UsesTheManifestSymptomAndLabels(t *testing.T) {
 	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
 	m.AnswerKey = fixture.AnswerKey{Cause: "n_plus_one", Function: "f", File: "a.go", Line: 7, CommitLabel: "ruim"}
 
@@ -118,7 +112,7 @@ func TestScoreErrorNamesTheRecordingOnce(t *testing.T) {
 	}
 }
 
-func TestAC23_FoundFromResultCarriesTheLocationLevel(t *testing.T) {
+func TestFoundFromResult_CarriesTheLocationLevel(t *testing.T) {
 	cases := []struct {
 		name string
 		res  analysis.Result
@@ -138,7 +132,7 @@ func TestAC23_FoundFromResultCarriesTheLocationLevel(t *testing.T) {
 	}
 }
 
-func TestAC28_ScoreOutputShowsTheLevelDistribution(t *testing.T) {
+func TestScore_OutputShowsTheLevelDistribution(t *testing.T) {
 	sc := evaluation.Score{Cause: oneOfOne, Line: oneOfOne, Commit: oneOfOne, Strict: oneOfOne,
 		LineLevels: evaluation.LineLevels{Level1: 3, Level2: 2, None: 1}}
 	sb := evaluation.Scoreboard{"detectors_only": sc}

@@ -1,9 +1,3 @@
-// Expected API (module github.com/MarcosAAlbanoJunior/rootline/hook, package callerhook):
-//
-//	func New() *Hook                          // module from debug.ReadBuildInfo().Main.Path
-//	func NewWithModule(modulePath string) *Hook // explicit main-module path ("" => hook is a no-op)
-//	*Hook implements pgx.QueryTracer and pgx.PrepareTracer.
-//
 // Test trick: this file is an external test package, whose import path is
 // ".../hook_test". Passing exactly that path as the "main module" makes the test functions
 // count as application frames while the hook's own frames (".../hook") are not, mimicking an
@@ -73,7 +67,7 @@ func attrMap(t *testing.T, exp *tracetest.InMemoryExporter) map[attribute.Key]at
 	return m
 }
 
-func TestAC3_QuerySpanGetsCallerAttributes(t *testing.T) {
+func TestHook_QuerySpanGetsCallerAttributes(t *testing.T) {
 	tp, exp := newProvider()
 	mt := newMulti(tp, testModule)
 
@@ -98,12 +92,12 @@ func TestAC3_QuerySpanGetsCallerAttributes(t *testing.T) {
 		t.Errorf("code.line.number = %d, want > 0", got)
 	}
 	stack := a["rootline.app_stack"].AsStringSlice()
-	if len(stack) < 2 || !strings.Contains(stack[0], "runQuery") || !strings.Contains(stack[1], "TestAC3_QuerySpanGetsCallerAttributes") {
+	if len(stack) < 2 || !strings.Contains(stack[0], "runQuery") || !strings.Contains(stack[1], "TestHook_QuerySpanGetsCallerAttributes") {
 		t.Errorf("app_stack must be innermost first (runQuery, then the test): %v", stack)
 	}
 }
 
-func TestAC4_AppStackFormatAndLimits(t *testing.T) {
+func TestHook_AppStackFormatAndLimits(t *testing.T) {
 	tp, exp := newProvider()
 	mt := newMulti(tp, testModule)
 
@@ -129,7 +123,7 @@ func TestAC4_AppStackFormatAndLimits(t *testing.T) {
 	}
 }
 
-func TestAC6_PrepareSpanGetsPhasePrepare(t *testing.T) {
+func TestHook_PrepareSpanGetsPhasePrepare(t *testing.T) {
 	tp, exp := newProvider()
 	mt := newMulti(tp, testModule)
 
@@ -142,7 +136,7 @@ func TestAC6_PrepareSpanGetsPhasePrepare(t *testing.T) {
 	}
 }
 
-func TestAC7_EmptyModulePathWritesNothingAndDoesNotPanic(t *testing.T) {
+func TestNewWithModule_EmptyModulePathWritesNothingAndDoesNotPanic(t *testing.T) {
 	tp, exp := newProvider()
 	h := callerhook.NewWithModule("")
 

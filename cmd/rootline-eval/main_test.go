@@ -1,4 +1,4 @@
-// Tests of the `score` command (AC37) with an injected scorer, so no recording is needed.
+// Tests of the `score` command with an injected scorer, so no recording is needed.
 package main
 
 import (
