@@ -10,8 +10,10 @@ import (
 	"strings"
 )
 
-// ScenarioCommit is one commit of a scenario. The first commit has no patch; the others apply
-// Patch (a file in the scenario directory).
+// ScenarioCommit is one commit of a scenario. Any commit may apply Patch (a file in the scenario
+// directory). On the first commit ("referencia") it is the preparation patch: it adds the
+// pre-existing code the scenario needs, so the base demo-app stays minimal. The next commits apply
+// their patches on top.
 type ScenarioCommit struct {
 	Label string `json:"label"`
 	Patch string `json:"patch,omitempty"`

@@ -176,8 +176,15 @@ func applyPatch(r *repoRunner, scenarioDir, patch string) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.git(0, "apply", "--whitespace=nowarn", "--", abs)
-	return err
+	// Read the patch here, not only in the git subprocess: go test caches by the files the test
+	// process opens, so a changed patch reruns the test that generates every scenario.
+	if _, err := os.ReadFile(abs); err != nil {
+		return fmt.Errorf("fixture: patch %s: %w", patch, err)
+	}
+	if _, err := r.git(0, "apply", "--whitespace=nowarn", "--", abs); err != nil {
+		return fmt.Errorf("fixture: patch %s: %w", patch, err)
+	}
+	return nil
 }
 
 // stripMarker finds the single line ending with marker, removes the marker (keeping the line
