@@ -1,13 +1,4 @@
-// AC35. Expected API (package main of cmd/rootline), added to be testable in-process:
-//
-//	func run(args []string, stdout, stderr io.Writer) int   // args exclude the program name
-//
-// `analyze --traces <f> --repo <dir> --service <n> --operation "<METHOD> <route>" --bad-version <sha>
-// [--baseline-version <sha>]` writes the Result JSON to stdout and returns 0. A missing required flag
-// or an invalid SHA writes the error to stderr (nothing on stdout) and returns 2.
-//
-// This file is not listed in the spec's "Affected files"; it is the only way found to cover AC35
-// without a subprocess. The implementation may move it if it prefers another entry point.
+// The CLI is tested in-process through run, so no binary is built or spawned as a subprocess.
 package main
 
 import (
@@ -57,7 +48,7 @@ func tracesFile(t *testing.T, sha string) string {
 	return p
 }
 
-func TestAC35_AnalyzeWritesResultJSONAndExitsZero(t *testing.T) {
+func TestRun_AnalyzeWritesResultJSONAndExitsZero(t *testing.T) {
 	parts := strings.SplitN(fixtureRepo(t), "|", 2)
 	repo, sha := parts[0], parts[1]
 	var stdout, stderr bytes.Buffer
@@ -77,7 +68,7 @@ func TestAC35_AnalyzeWritesResultJSONAndExitsZero(t *testing.T) {
 	}
 }
 
-func TestAC35_MissingRequiredArgumentExitsTwo(t *testing.T) {
+func TestRun_MissingRequiredArgumentExitsTwo(t *testing.T) {
 	full := []string{"analyze", "--traces", "t.jsonl", "--repo", ".", "--service", "demo-app",
 		"--operation", "GET /x", "--bad-version", "abc1234"}
 	for _, drop := range []string{"--traces", "--repo", "--service", "--operation", "--bad-version"} {
@@ -99,7 +90,7 @@ func TestAC35_MissingRequiredArgumentExitsTwo(t *testing.T) {
 	}
 }
 
-func TestAC35_InvalidSHAExitsTwo(t *testing.T) {
+func TestRun_InvalidSHAExitsTwo(t *testing.T) {
 	for _, flag := range []string{"--bad-version", "--baseline-version"} {
 		var stdout, stderr bytes.Buffer
 		args := []string{"analyze", "--traces", "t.jsonl", "--repo", ".", "--service", "demo-app",

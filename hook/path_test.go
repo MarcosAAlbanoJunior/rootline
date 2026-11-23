@@ -1,12 +1,3 @@
-// Expected API (module github.com/MarcosAAlbanoJunior/rootline/hook, package callerhook):
-//
-//	func ModuleRelPath(modulePath, mainPkgPath, function, file string) (rel string, ok bool)
-//
-// modulePath is debug.ReadBuildInfo().Main.Path; mainPkgPath is debug.ReadBuildInfo().Path
-// (import path of the package main). function is the runtime symbol (runtime.Frame.Function),
-// file is the absolute file of the frame. rel is "<package dir relative to module>/<file base>"
-// (or just "<file base>" for the module root package). ok=false for third-party code and for
-// packages whose path merely shares a textual prefix with the module path. AC5.
 package callerhook_test
 
 import (
@@ -15,7 +6,7 @@ import (
 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
 )
 
-func TestAC5_ModuleRelPath(t *testing.T) {
+func TestModuleRelPath_DerivesThePathFromThePackagePath(t *testing.T) {
 	const mod = "github.com/x/shop"
 	tests := []struct {
 		name     string
