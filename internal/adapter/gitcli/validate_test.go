@@ -1,18 +1,3 @@
-// Expected API (package gitcli):
-//
-//	func ValidateSHA(sha string) error   // ^[0-9a-f]{7,64}$
-//	func ValidatePath(path string) error // relative, clean, no "..", no leading "-" or "/", no NUL, no backslash
-//
-//	type Runner interface { Run(dir string, args ...string) ([]byte, error) } // runs `git <args>` in dir
-//	func New(repoDir string) *Git                      // uses the real git binary
-//	func NewWithRunner(repoDir string, r Runner) *Git
-//	func (g *Git) ReadBlob(sha, path string) ([]byte, error)
-//	func (g *Git) RevList(base, bad string) ([]string, error)          // oldest first
-//	func (g *Git) ChangedLines(commit string) (map[string][][2]int, error) // new-side [start,end] per file
-//	func (g *Git) ResolvePath(sha, modulePath, relFile string) (string, error)
-//	var ErrModuleNotFound, ErrAmbiguousModule error
-//
-// Every method validates its SHA/path arguments syntactically BEFORE invoking the Runner.
 package gitcli_test
 
 import (
@@ -23,7 +8,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/gitcli"
 )
 
-func TestAC29_ValidateSHA(t *testing.T) {
+func TestValidateSHA_AcceptsOnlyHexObjectNames(t *testing.T) {
 	good := []string{"abc1234", "0123456789abcdef", "0123456789abcdef0123456789abcdef01234567", strings.Repeat("a", 64)}
 	for _, s := range good {
 		if err := gitcli.ValidateSHA(s); err != nil {
@@ -41,7 +26,7 @@ func TestAC29_ValidateSHA(t *testing.T) {
 	}
 }
 
-func TestAC31_ValidatePathHostile(t *testing.T) {
+func TestValidatePath_RefusesHostilePaths(t *testing.T) {
 	bad := []string{
 		"../../etc/passwd", "..", "a/../b.go", "-rf", "-", "/etc/passwd", "a\\b.go", "a\x00.go",
 		"", "./a.go", "a//b.go", "a/", "a/./b.go",
@@ -65,7 +50,7 @@ func (c *countingRunner) Run(_ string, args ...string) ([]byte, error) {
 	return nil, errors.New("fake runner: must not be reached")
 }
 
-func TestAC29_InvalidSHARefusedWithoutRunningAProcess(t *testing.T) {
+func TestGit_InvalidSHARefusedWithoutRunningAProcess(t *testing.T) {
 	const evil = "--output=/tmp/x"
 	r := &countingRunner{}
 	g := gitcli.NewWithRunner("/repo", r)
@@ -90,7 +75,7 @@ func TestAC29_InvalidSHARefusedWithoutRunningAProcess(t *testing.T) {
 	}
 }
 
-func TestAC31_HostilePathRefusedWithoutRunningAProcess(t *testing.T) {
+func TestGit_HostilePathRefusedWithoutRunningAProcess(t *testing.T) {
 	r := &countingRunner{}
 	g := gitcli.NewWithRunner("/repo", r)
 	for _, p := range []string{"../../etc/passwd", "-rf", "/etc/passwd", "a\\b.go", "a\x00.go"} {

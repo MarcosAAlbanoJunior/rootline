@@ -1,9 +1,4 @@
-// Slice 2, AC16 and AC17: the symptom block of scenario.json.
-//
-// Expected API (package fixture):
-//
-//	type Symptom struct { Service, Method, RouteSource, Bad, Baseline string } // json: service, method, route_source, bad, baseline
-//	Scenario gains: Symptom Symptom `json:"symptom"`
+// The symptom block of scenario.json.
 package fixture_test
 
 import (
@@ -30,7 +25,7 @@ func loadScenarioWith(t *testing.T, symptom string) (fixture.Scenario, error) {
 	return fixture.LoadScenario(dir)
 }
 
-func TestAC16_SymptomBlockIsLoaded(t *testing.T) {
+func TestLoadScenario_SymptomBlockIsLoaded(t *testing.T) {
 	sc, err := loadScenarioWith(t, `{"service":"demo-app","method":"GET","route_source":"span_name","bad":"regressao","baseline":"referencia"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -41,13 +36,13 @@ func TestAC16_SymptomBlockIsLoaded(t *testing.T) {
 	}
 }
 
-func TestAC16_EmptyBaselineIsAllowed(t *testing.T) {
+func TestLoadScenario_EmptyBaselineIsAllowed(t *testing.T) {
 	if _, err := loadScenarioWith(t, `{"service":"s","method":"GET","bad":"regressao"}`); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestAC16_InvalidSymptomNamesTheField(t *testing.T) {
+func TestLoadScenario_InvalidSymptomNamesTheField(t *testing.T) {
 	cases := []struct{ name, symptom, field string }{
 		{"empty service", `{"method":"GET","bad":"regressao"}`, "service"},
 		{"empty method", `{"service":"s","bad":"regressao"}`, "method"},
@@ -65,7 +60,7 @@ func TestAC16_InvalidSymptomNamesTheField(t *testing.T) {
 	}
 }
 
-func TestAC16_MissingSymptomBlockIsAnError(t *testing.T) {
+func TestLoadScenario_MissingSymptomBlockIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	body := `{"name":"n","commits":[{"label":"a"}],"answer":{"cause":"c","function":"f","file":"a.go","marker":"m","commit":"a"}}`
 	if err := os.WriteFile(filepath.Join(dir, "scenario.json"), []byte(body), 0o644); err != nil {
@@ -76,7 +71,7 @@ func TestAC16_MissingSymptomBlockIsAnError(t *testing.T) {
 	}
 }
 
-func TestAC17_N1BasicDeclaresTheSymptom(t *testing.T) {
+func TestLoadScenario_N1BasicDeclaresTheSymptom(t *testing.T) {
 	sc, err := fixture.LoadScenario(filepath.Join("..", "..", "eval", "fixtures", "scenarios", "n1-basic"))
 	if err != nil {
 		t.Fatal(err)

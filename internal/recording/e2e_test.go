@@ -1,23 +1,7 @@
 //go:build e2e
 
-// AC38 (end to end, needs Docker, network for module downloads, and takes minutes).
+// End to end: needs Docker, network for module downloads, and takes minutes.
 // Run with: go test -tags e2e ./internal/recording/
-//
-// Expected API (package recording), besides manifest.go and load.go:
-//
-//	type RecordOptions struct {
-//	    ScenarioDir, SourceDir, OutDir string
-//	    Load                           LoadConfig
-//	    PostgresPort, CollectorPort, AppPort int // 0 = default
-//	}
-//	// Record generates <OutDir>/repo, records every commit and writes <OutDir>/traces.jsonl and
-//	// <OutDir>/manifest.json. Fails if OutDir exists and is not empty.
-//	func Record(ctx context.Context, opts RecordOptions) error
-//
-// Wiring used below (production code must provide these constructors):
-//
-//	gitcli.New(repoDir) *gitcli.Git; goindex.New(git) *goindex.Index; otlpfile.ReadFile(path)
-//	analysis.Analyze(src, idx, git, symptom)
 package recording_test
 
 import (
@@ -41,7 +25,7 @@ type fileSource []trace.Span
 
 func (f fileSource) Spans() ([]trace.Span, error) { return f, nil }
 
-func TestAC38_RecordAnalyzeScoreN1Basic(t *testing.T) {
+func TestRecordAnalyzeScore_N1BasicEndToEnd(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
 	}

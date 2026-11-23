@@ -1,9 +1,3 @@
-// Expected API (package recording):
-//
-//	func DefaultLoad() LoadConfig // Requests 200, Rate 50 (per second), Route "/customers/{id}/orders"
-//	// RunLoad sends cfg.Requests GET requests to baseURL+route at cfg.Rate per second, replacing
-//	// "{id}" by the customer id, cycling 1..20. It aborts with an error on the first non-200 reply.
-//	func RunLoad(ctx context.Context, baseURL string, cfg LoadConfig) error
 package recording_test
 
 import (
@@ -18,7 +12,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/recording"
 )
 
-func TestAC15_DefaultLoad(t *testing.T) {
+func TestDefaultLoad_Is200RequestsAt50PerSecond(t *testing.T) {
 	got := recording.DefaultLoad()
 	want := recording.LoadConfig{Requests: 200, Rate: 50, Route: "/customers/{id}/orders"}
 	if got != want {
@@ -40,7 +34,7 @@ func (r *recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(r.status(n))
 }
 
-func TestAC15_SendsFixedCountCyclingCustomers(t *testing.T) {
+func TestRunLoad_SendsFixedCountCyclingCustomers(t *testing.T) {
 	rec := &recorder{status: func(int) int { return 200 }}
 	srv := httptest.NewServer(rec)
 	defer srv.Close()
@@ -60,7 +54,7 @@ func TestAC15_SendsFixedCountCyclingCustomers(t *testing.T) {
 	}
 }
 
-func TestAC15_AbortsOnFirstNon200(t *testing.T) {
+func TestRunLoad_AbortsOnFirstNon200(t *testing.T) {
 	rec := &recorder{status: func(n int) int {
 		if n == 3 {
 			return 500

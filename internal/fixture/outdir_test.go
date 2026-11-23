@@ -9,7 +9,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
 )
 
-// AC16: a non-empty output directory fails with a clear message; nothing is reused or touched.
+// A non-empty output directory fails with a clear message; nothing is reused or touched.
 func TestGenerateRefusesANonEmptyOutDir(t *testing.T) {
 	source, scenario := setup(t)
 	out := t.TempDir()
