@@ -22,7 +22,7 @@ go work init . ./hook ./demo-app
 - Lint (depguard, errcheck, govet, ineffassign, staticcheck, unused; golangci-lint v2.15.0, a mesma
   versão do CI): `golangci-lint run` na raiz e `GOWORK=off golangci-lint run` em `hook/` e `demo-app/`.
   `//nolint` só com o linter nomeado e o motivo: `//nolint:errcheck // <motivo>`.
-- Gate do specgate (`specgate.config`): build + `go test ./...` + gofmt + `go vet` + lint dos três módulos.
+- Gate (`scripts/check.sh`): build + `go test ./...` + gofmt + `go vet` + lint dos três módulos, igual ao job `check` do CI. Rode antes de declarar uma mudança pronta.
 - CI (`.github/workflows/ci.yml`): `check` (o mesmo que o gate, nos três módulos), `cross` (compilação
   para linux/darwin/windows), `placar` (grava o n1-basic com Docker e roda `score` sem `--update`; desvio
   temporário do ADR-0008, issue #5) e `e2e` (só na `main` e sob demanda). Actions fixadas por SHA;
