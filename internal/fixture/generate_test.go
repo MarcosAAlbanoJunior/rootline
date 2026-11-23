@@ -235,3 +235,76 @@ func TestGenerate_FixedIdentityDatesAndDeterministicSHAs(t *testing.T) {
 		}
 	}
 }
+
+const preparedFile = "demo-app/internal/extra/extra.go"
+
+func preparationPatch() string {
+	return lines(
+		"diff --git a/"+preparedFile+" b/"+preparedFile,
+		"new file mode 100644",
+		"--- /dev/null",
+		"+++ b/"+preparedFile,
+		"@@ -0,0 +1 @@",
+		"+package extra",
+	)
+}
+
+// withPreparation rewrites the scenario so that its "referencia" commit applies patchName.
+func withPreparation(t *testing.T, scenario, patchName, patchBody string) {
+	t.Helper()
+	path := filepath.Join(scenario, "scenario.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sc map[string]any
+	if err := json.Unmarshal(data, &sc); err != nil {
+		t.Fatal(err)
+	}
+	commits := sc["commits"].([]any)
+	commits[0].(map[string]any)["patch"] = patchName
+	b, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, path, string(b))
+	write(t, filepath.Join(scenario, patchName), patchBody)
+}
+
+func TestGenerate_PreparationPatchOnTheReferenceCommitIsAppliedBeforeTheNextPatch(t *testing.T) {
+	source, scenario := setup(t)
+	withPreparation(t, scenario, "preparacao.patch", preparationPatch())
+	g := generate(t, source, scenario)
+
+	first := git(t, g.RepoDir, "ls-tree", "-r", "--name-only", g.Commits[0].SHA)
+	if !strings.Contains(first, preparedFile) {
+		t.Fatalf("first commit lacks the file created by the preparation patch:\n%s", first)
+	}
+	if blob := git(t, g.RepoDir, "show", g.Commits[0].SHA+":"+serviceFile); !strings.Contains(blob, "s.repo.Items(ids)") {
+		t.Errorf("first commit must keep the healthy service:\n%s", blob)
+	}
+	second := git(t, g.RepoDir, "ls-tree", "-r", "--name-only", g.Commits[1].SHA)
+	if !strings.Contains(second, preparedFile) {
+		t.Errorf("second commit lost the prepared file:\n%s", second)
+	}
+	if blob := git(t, g.RepoDir, "show", g.Commits[1].SHA+":"+serviceFile); !strings.Contains(blob, "ItemsByOrder") {
+		t.Errorf("second commit must apply its own patch on top:\n%s", blob)
+	}
+}
+
+func TestGenerate_PreparationPatchThatDoesNotApplyIsAnErrorNamingThePatch(t *testing.T) {
+	source, scenario := setup(t)
+	broken := lines(
+		"diff --git a/"+serviceFile+" b/"+serviceFile,
+		"--- a/"+serviceFile,
+		"+++ b/"+serviceFile,
+		"@@ -1,1 +1,1 @@",
+		"-this line is not in the file",
+		"+neither is this one",
+	)
+	withPreparation(t, scenario, "preparacao.patch", broken)
+	_, err := fixture.Generate(fixture.Options{ScenarioDir: scenario, SourceDir: source, OutDir: filepath.Join(t.TempDir(), "out")})
+	if err == nil || !strings.Contains(err.Error(), "preparacao.patch") {
+		t.Fatalf("err = %v, want an error naming %q", err, "preparacao.patch")
+	}
+}
