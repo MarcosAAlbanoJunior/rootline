@@ -66,21 +66,24 @@ Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 5/5, 100% |
-| Linha | 5/5, 100% |
-| Commit | 5/5, 100% |
-| Estrito | 5/5, 100% |
+| Causa | 6/6, 100% |
+| Linha | 6/6, 100% |
+| Commit | 6/6, 100% |
+| Estrito | 6/6, 100% |
+| Falso positivo de detector | 0/1, 0% |
 
-Níveis da Linha: 1=5 2=0 ausente=0.
+Níveis da Linha: 1=6 2=0 ausente=0. O falso positivo de detector conta só os cenários com distrator, e
+para ele menos é melhor.
 
 Por cenário:
 
-| Cenário | Causa | Linha | Commit | Estrito | Nível |
-|---|---|---|---|---|---|
-| n1-basic | ok | ok | ok | ok | 1 |
-| n1-errgroup | ok | ok | ok | ok | 1 |
-| n1-helper | ok | ok | ok | ok | 1 |
-| n1-rangefunc | ok | ok | ok | ok | 1 |
-| n1-workpool | ok | ok | ok | ok | 1 |
+| Cenário | Causa | Linha | Commit | Estrito | Nível | Falso positivo |
+|---|---|---|---|---|---|---|
+| n1-basic | ok | ok | ok | ok | 1 | — |
+| n1-errgroup | ok | ok | ok | ok | 1 | — |
+| n1-helper | ok | ok | ok | ok | 1 | — |
+| n1-pagination | ok | ok | ok | ok | 1 | não |
+| n1-rangefunc | ok | ok | ok | ok | 1 | — |
+| n1-workpool | ok | ok | ok | ok | 1 | — |
 
 O projeto avança em slices verticais; decisões ficam em `docs/adr/`.

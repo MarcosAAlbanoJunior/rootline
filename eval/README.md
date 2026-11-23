@@ -23,11 +23,19 @@ frames acima da query, em outro pacote, quebra a suposição de que o loop está
 | `n1-rangefunc` | O frame do loop tem o nome da função declarada: o corpo de um `for range` sobre `iter.Seq2` vira `History-range1` ([ADR-0019](../docs/adr/0019-funcao-declarada-no-lugar-de-nomes-sinteticos.md)). |
 | `n1-errgroup` | O frame da função que contém o loop está na pilha da query: cada query roda numa goroutine lançada no loop com `errgroup`, e a pilha começa na closure (`Summary.func1`), cuja linha fica dentro do loop ([ADR-0019](../docs/adr/0019-funcao-declarada-no-lugar-de-nomes-sinteticos.md)). |
 | `n1-workpool` | As queries repetidas têm o mesmo pai direto: cada uma roda num job de um pool de trabalho, sob um span `workpool.job` próprio, e o detector as agrupa pelo pai efetivo ([ADR-0020](../docs/adr/0020-pai-efetivo-com-filhos-do-cliente-de-banco.md)). |
+| `n1-pagination` | Repetição de query em loop é sempre N+1: a mesma função lê os itens do cliente paginados por keyset com `LIMIT 4` (8 queries, 4 × 7 e 2 linhas), que passa nos limiares do N+1, e só a regressão (itens por pedido num `for range`) é N+1. A leitura paginada é o primeiro distrator ([ADR-0021](../docs/adr/0021-forma-de-paginacao-nao-e-n-mais-1.md), [ADR-0022](../docs/adr/0022-distrator-declarado-no-cenario.md)). |
 
 O `n1-workpool` é o primeiro cenário com carga multirrota: além da rota do sintoma
 (`/customers/{id}/shipments`, peso 3), a carga passa pela rota saudável `/customers/{id}/dashboard`
 (peso 1), que usa o mesmo pool com dois jobs de queries diferentes. A rota saudável prova na gravação
 que o handler responde sob o pool, mas **não é pontuada**: o `score` analisa só a rota do sintoma.
+
+O `n1-pagination` é o primeiro cenário com distrator. Causa e distrator ficam na mesma rota e na mesma
+função (`statement.(*Service).Statement`), e a linha os distingue: a chamada paginada dentro do `for`
+é o distrator, a busca de itens dentro do `for range orders` é a causa. Sem a regra da forma de
+paginação, o detector reporta a leitura paginada como segunda candidata, na linha do distrator, e o
+cenário marca falso positivo. Com a regra, ela sai das candidatas e o Resultado ganha a observação
+`pagination_shape:`.
 
 ## Código pré-existente: patch de preparação
 
