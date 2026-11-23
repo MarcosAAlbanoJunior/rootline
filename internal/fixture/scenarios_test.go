@@ -52,12 +52,16 @@ const demoModule = "github.com/MarcosAAlbanoJunior/rootline/demo-app"
 func TestLoadScenario_RepositoryScenariosDeclareTheirSymptomLoadAndAnswer(t *testing.T) {
 	cases := []struct {
 		dir, route, function, file string
+		routes                     []fixture.LoadRoute // nil: only the symptom route, weight 1
 	}{
-		{"n1-helper", "/customers/{id}/receipts", demoModule + "/internal/receipts.(*Service).Receipts", "demo-app/internal/receipts/service.go"},
+		{"n1-helper", "/customers/{id}/receipts", demoModule + "/internal/receipts.(*Service).Receipts", "demo-app/internal/receipts/service.go", nil},
 		// The declared function, without the -rangeN suffix of the range-over-func body (ADR-0016).
-		{"n1-rangefunc", "/customers/{id}/history", demoModule + "/internal/history.(*Service).History", "demo-app/internal/history/service.go"},
+		{"n1-rangefunc", "/customers/{id}/history", demoModule + "/internal/history.(*Service).History", "demo-app/internal/history/service.go", nil},
 		// The declared function, without the .funcN of the closure launched in the loop (ADR-0019).
-		{"n1-errgroup", "/customers/{id}/summary", demoModule + "/internal/summary.(*Service).Summary", "demo-app/internal/summary/service.go"},
+		{"n1-errgroup", "/customers/{id}/summary", demoModule + "/internal/summary.(*Service).Summary", "demo-app/internal/summary/service.go", nil},
+		// The healthy dashboard route shares the work pool; it is in the load but not scored.
+		{"n1-workpool", "/customers/{id}/shipments", demoModule + "/internal/shipments.(*Service).Shipments", "demo-app/internal/shipments/service.go",
+			[]fixture.LoadRoute{{Route: "/customers/{id}/shipments", Weight: 3}, {Route: "/customers/{id}/dashboard", Weight: 1}}},
 	}
 	for _, c := range cases {
 		t.Run(c.dir, func(t *testing.T) {
@@ -72,8 +76,15 @@ func TestLoadScenario_RepositoryScenariosDeclareTheirSymptomLoadAndAnswer(t *tes
 			if sc.Symptom != wantSymptom {
 				t.Errorf("Symptom = %+v, want %+v", sc.Symptom, wantSymptom)
 			}
-			if len(sc.Load.Routes) != 1 || sc.Load.Routes[0] != (fixture.LoadRoute{Route: c.route, Weight: 1}) {
-				t.Errorf("Load.Routes = %+v, want only %s with weight 1", sc.Load.Routes, c.route)
+			wantRoutes := c.routes
+			if wantRoutes == nil {
+				wantRoutes = []fixture.LoadRoute{{Route: c.route, Weight: 1}}
+			}
+			if !slices.Equal(sc.Load.Routes, wantRoutes) {
+				t.Errorf("Load.Routes = %+v, want %+v", sc.Load.Routes, wantRoutes)
+			}
+			if c.routes != nil && (sc.Load.Requests != 200 || sc.Load.RatePerSecond != 50) {
+				t.Errorf("Load = %+v, want 200 requests at 50 per second", sc.Load)
 			}
 			wantAnswer := fixture.ScenarioAnswer{Cause: "n_plus_one", Function: c.function, File: c.file, Marker: " // rootline:answer", Commit: "regressao"}
 			if sc.Answer != wantAnswer {

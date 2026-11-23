@@ -1,0 +1,494 @@
+diff --git a/demo-app/internal/dashboard/handler.go b/demo-app/internal/dashboard/handler.go
+new file mode 100644
+index 0000000..0e98265
+--- /dev/null
++++ b/demo-app/internal/dashboard/handler.go
+@@ -0,0 +1,45 @@
++package dashboard
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Builder is what the handler needs from the service.
++type Builder interface {
++	Dashboard(ctx context.Context, customerID int64) (Dashboard, error)
++}
++
++// Handler serves the customer dashboard HTTP endpoint.
++type Handler struct {
++	builder Builder
++}
++
++// NewHandler returns a Handler over builder.
++func NewHandler(builder Builder) *Handler {
++	return &Handler{builder: builder}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/dashboard", h.getDashboard)
++}
++
++func (h *Handler) getDashboard(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.builder.Dashboard(r.Context(), id)
++	if err != nil {
++		slog.Error("customer dashboard failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/dashboard/repository.go b/demo-app/internal/dashboard/repository.go
+new file mode 100644
+index 0000000..7690cbb
+--- /dev/null
++++ b/demo-app/internal/dashboard/repository.go
+@@ -0,0 +1,53 @@
++// Package dashboard is the demo-app's customer dashboard: the most recent orders and the total
++// quantity ordered, read in parallel through the work pool.
++package dashboard
++
++import (
++	"context"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
++}
++
++// Order is one row of the orders table.
++type Order struct {
++	ID         int64     `json:"id"`
++	CustomerID int64     `json:"customer_id"`
++	PlacedAt   time.Time `json:"placed_at"`
++}
++
++// Repository reads the dashboard data from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// RecentOrders returns the customer's most recent orders, newest first, at most limit.
++func (r *Repository) RecentOrders(ctx context.Context, customerID int64, limit int) ([]Order, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, customer_id, placed_at FROM orders WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT $2`,
++		customerID, limit)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
++}
++
++// TotalQty returns the quantity of all items the customer ever ordered.
++func (r *Repository) TotalQty(ctx context.Context, customerID int64) (int64, error) {
++	var total int64
++	err := r.db.QueryRow(ctx,
++		`SELECT COALESCE(SUM(i.qty), 0) FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.customer_id = $1`,
++		customerID).Scan(&total)
++	return total, err
++}
+diff --git a/demo-app/internal/dashboard/service.go b/demo-app/internal/dashboard/service.go
+new file mode 100644
+index 0000000..6af4b0d
+--- /dev/null
++++ b/demo-app/internal/dashboard/service.go
+@@ -0,0 +1,58 @@
++package dashboard
++
++import (
++	"context"
++
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/workpool"
++)
++
++// recentLimit is how many recent orders the dashboard shows.
++const recentLimit = 5
++
++// Dashboard is the customer's most recent orders and the total quantity ordered.
++type Dashboard struct {
++	RecentOrders []Order `json:"recent_orders"`
++	TotalQty     int64   `json:"total_qty"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	RecentOrders(ctx context.Context, customerID int64, limit int) ([]Order, error)
++	TotalQty(ctx context.Context, customerID int64) (int64, error)
++}
++
++// Pool is what the service needs from the work pool.
++type Pool interface {
++	Group(ctx context.Context) *workpool.Group
++}
++
++// Service builds a customer's dashboard.
++type Service struct {
++	store Store
++	pool  Pool
++}
++
++// NewService returns a Service over store, running its jobs on pool.
++func NewService(store Store, pool Pool) *Service {
++	return &Service{store: store, pool: pool}
++}
++
++// Dashboard reads the recent orders and the total quantity in two parallel jobs.
++func (s *Service) Dashboard(ctx context.Context, customerID int64) (Dashboard, error) {
++	var out Dashboard
++	g := s.pool.Group(ctx)
++	g.Go(func(ctx context.Context) error {
++		var err error
++		out.RecentOrders, err = s.store.RecentOrders(ctx, customerID, recentLimit)
++		return err
++	})
++	g.Go(func(ctx context.Context) error {
++		var err error
++		out.TotalQty, err = s.store.TotalQty(ctx, customerID)
++		return err
++	})
++	if err := g.Wait(); err != nil {
++		return Dashboard{}, err
++	}
++	return out, nil
++}
+diff --git a/demo-app/internal/shipments/handler.go b/demo-app/internal/shipments/handler.go
+new file mode 100644
+index 0000000..c89530c
+--- /dev/null
++++ b/demo-app/internal/shipments/handler.go
+@@ -0,0 +1,45 @@
++package shipments
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Lister is what the handler needs from the service.
++type Lister interface {
++	Shipments(ctx context.Context, customerID int64) ([]Shipment, error)
++}
++
++// Handler serves the customer shipments HTTP endpoint.
++type Handler struct {
++	lister Lister
++}
++
++// NewHandler returns a Handler over lister.
++func NewHandler(lister Lister) *Handler {
++	return &Handler{lister: lister}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/shipments", h.listShipments)
++}
++
++func (h *Handler) listShipments(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.lister.Shipments(r.Context(), id)
++	if err != nil {
++		slog.Error("list shipments failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/shipments/repository.go b/demo-app/internal/shipments/repository.go
+new file mode 100644
+index 0000000..a52a815
+--- /dev/null
++++ b/demo-app/internal/shipments/repository.go
+@@ -0,0 +1,60 @@
++// Package shipments is the demo-app's shipments: a customer's orders with the items to ship, read
++// through the work pool.
++package shipments
++
++import (
++	"context"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Order is one row of the orders table.
++type Order struct {
++	ID         int64     `json:"id"`
++	CustomerID int64     `json:"customer_id"`
++	PlacedAt   time.Time `json:"placed_at"`
++}
++
++// Item is one row of the order_items table.
++type Item struct {
++	ID      int64  `json:"id"`
++	OrderID int64  `json:"order_id"`
++	SKU     string `json:"sku"`
++	Qty     int    `json:"qty"`
++}
++
++// Repository reads orders and items from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// Orders returns the customer's orders, oldest first.
++func (r *Repository) Orders(ctx context.Context, customerID int64) ([]Order, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, customer_id, placed_at FROM orders WHERE customer_id = $1 ORDER BY id`, customerID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
++}
++
++// ItemsByOrders returns the items of all given orders in a single query.
++func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Item])
++}
+diff --git a/demo-app/internal/shipments/service.go b/demo-app/internal/shipments/service.go
+new file mode 100644
+index 0000000..0c99a80
+--- /dev/null
++++ b/demo-app/internal/shipments/service.go
+@@ -0,0 +1,71 @@
++package shipments
++
++import (
++	"context"
++	"sync"
++
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/workpool"
++)
++
++// Shipment is an order and the items to ship.
++type Shipment struct {
++	Order
++	Items []Item `json:"items"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	Orders(ctx context.Context, customerID int64) ([]Order, error)
++	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++}
++
++// Pool is what the service needs from the work pool.
++type Pool interface {
++	Group(ctx context.Context) *workpool.Group
++}
++
++// Service builds a customer's shipments.
++type Service struct {
++	store Store
++	pool  Pool
++}
++
++// NewService returns a Service over store, running its jobs on pool.
++func NewService(store Store, pool Pool) *Service {
++	return &Service{store: store, pool: pool}
++}
++
++// Shipments returns the customer's orders, oldest first, each with its items.
++func (s *Service) Shipments(ctx context.Context, customerID int64) ([]Shipment, error) {
++	orders, err := s.store.Orders(ctx, customerID)
++	if err != nil {
++		return nil, err
++	}
++	g := s.pool.Group(ctx)
++	var mu sync.Mutex
++	byOrder := make(map[int64][]Item, len(orders))
++	g.Go(func(ctx context.Context) error {
++		ids := make([]int64, 0, len(orders))
++		for _, o := range orders {
++			ids = append(ids, o.ID)
++		}
++		items, err := s.store.ItemsByOrders(ctx, ids)
++		if err != nil {
++			return err
++		}
++		mu.Lock()
++		defer mu.Unlock()
++		for _, it := range items {
++			byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
++		}
++		return nil
++	})
++	if err := g.Wait(); err != nil {
++		return nil, err
++	}
++	out := make([]Shipment, 0, len(orders))
++	for _, o := range orders {
++		out = append(out, Shipment{Order: o, Items: byOrder[o.ID]})
++	}
++	return out, nil
++}
+diff --git a/demo-app/internal/workpool/pool.go b/demo-app/internal/workpool/pool.go
+new file mode 100644
+index 0000000..5b1993c
+--- /dev/null
++++ b/demo-app/internal/workpool/pool.go
+@@ -0,0 +1,94 @@
++// Package workpool is a long-lived pool of workers shared by the demo-app's requests. Each job runs
++// in its own span, child of the context of whoever submitted it.
++package workpool
++
++import (
++	"context"
++	"sync"
++
++	"go.opentelemetry.io/otel"
++	"go.opentelemetry.io/otel/codes"
++)
++
++// SpanName is the name of the span every job runs in.
++const SpanName = "workpool.job"
++
++type task struct {
++	ctx  context.Context
++	fn   func(ctx context.Context) error
++	done func(err error)
++}
++
++// Pool runs submitted jobs on a fixed number of workers.
++type Pool struct {
++	jobs chan task
++	wg   sync.WaitGroup
++}
++
++// New starts a pool with the given number of workers. Close stops it.
++func New(workers int) *Pool {
++	p := &Pool{jobs: make(chan task)}
++	for range workers {
++		p.wg.Add(1)
++		go p.run()
++	}
++	return p
++}
++
++func (p *Pool) run() {
++	defer p.wg.Done()
++	tracer := otel.Tracer("github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/workpool")
++	for job := range p.jobs {
++		ctx, span := tracer.Start(job.ctx, SpanName)
++		err := job.fn(ctx)
++		if err != nil {
++			span.RecordError(err)
++			span.SetStatus(codes.Error, err.Error())
++		}
++		span.End()
++		job.done(err)
++	}
++}
++
++// Close stops accepting jobs and waits for the workers to finish the running ones.
++func (p *Pool) Close() {
++	close(p.jobs)
++	p.wg.Wait()
++}
++
++// Group returns a group of jobs for one request; its jobs run under ctx.
++func (p *Pool) Group(ctx context.Context) *Group {
++	return &Group{pool: p, ctx: ctx}
++}
++
++// Group is a set of jobs submitted together, waited for with Wait.
++type Group struct {
++	pool *Pool
++	ctx  context.Context
++	wg   sync.WaitGroup
++	mu   sync.Mutex
++	err  error
++}
++
++// Go submits fn to the pool, blocking until a worker takes it.
++func (g *Group) Go(fn func(ctx context.Context) error) {
++	g.wg.Add(1)
++	g.pool.jobs <- task{ctx: g.ctx, fn: fn, done: g.finish}
++}
++
++func (g *Group) finish(err error) {
++	if err != nil {
++		g.mu.Lock()
++		if g.err == nil {
++			g.err = err
++		}
++		g.mu.Unlock()
++	}
++	g.wg.Done()
++}
++
++// Wait waits for every job of the group and returns the first error.
++func (g *Group) Wait() error {
++	g.wg.Wait()
++	return g.err
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 215eb15..16252f9 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -24,7 +24,10 @@ import (
+ 	"go.opentelemetry.io/otel/sdk/resource"
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/dashboard"
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/shipments"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/workpool"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+ 
+@@ -74,6 +77,10 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	workers := workpool.New(4)
++	defer workers.Close()
++	shipments.NewHandler(shipments.NewService(shipments.NewRepository(pool), workers)).Register(mux)
++	dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(pool), workers)).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),
