@@ -68,3 +68,39 @@ func TestRouteSourceReflectsTheRealSourceOfTheRootSpan(t *testing.T) {
 		t.Errorf("route_source = %v, want span_name", op["route_source"])
 	}
 }
+
+type noLoopIndex struct{ fakeIndex }
+
+func (noLoopIndex) InLoop(_, _ string, _ int) (bool, error) { return false, nil }
+
+// ADR-0017: without a frame in a loop, the Result keeps the level-1 location and carries
+// loop_not_found once in its warnings; with the loop found, the warning is absent.
+func TestLoopNotFoundReachesTheResultWarningsOnce(t *testing.T) {
+	const want = "loop_not_found: no app_stack frame inside a loop (2 frames)"
+	res, err := analysis.Analyze(allSpans(4, 4, badTrace), noLoopIndex{}, fakeGit{}, symptom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, w := range res.Warnings {
+		if w == want {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("warnings = %q, want %q exactly once", res.Warnings, want)
+	}
+	if l := res.Cause.Location; l == nil || l.Level != 1 || l.InLoop == nil || *l.InLoop {
+		t.Fatalf("location = %+v, want level 1 with in_loop false", l)
+	}
+
+	found, err := analysis.Analyze(allSpans(4, 4, badTrace), fakeIndex{}, fakeGit{}, symptom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range found.Warnings {
+		if strings.HasPrefix(w, "loop_not_found:") {
+			t.Fatalf("warnings = %q, want no loop_not_found when the loop is found", found.Warnings)
+		}
+	}
+}
