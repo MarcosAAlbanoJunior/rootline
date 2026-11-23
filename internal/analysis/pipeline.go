@@ -46,9 +46,12 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 		res.Symptom.Operation.RouteSource = op.RouteSource // the real source, not the caller's guess
 	}
 
-	cands, err := detector.Detect(env{idx: idx, git: git}, s.BadVersion, spansOf(bad))
+	cands, discarded, err := detector.Detect(env{idx: idx, git: git}, s.BadVersion, spansOf(bad))
 	if err != nil {
 		return Result{}, err
+	}
+	for _, d := range discarded {
+		res.Observations = append(res.Observations, fmt.Sprintf("pagination_shape: %s (%d traces)", d.Query, d.Traces))
 	}
 
 	scored := make([]scoredCandidate, 0, len(cands))

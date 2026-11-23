@@ -101,14 +101,38 @@ type candAgg struct {
 	warnings warnSet
 }
 
+// Discarded is a query whose occurrences had the pagination shape in Traces traces; they left
+// before the aggregation (ADR-0021).
+type Discarded struct {
+	Query  string
+	Traces int
+}
+
 // Detect receives the traces (one []Span each) of the entry operation in the bad version and
-// returns the N+1 candidates, highest score first.
-func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, error) {
+// returns the N+1 candidates, highest score first, and the queries discarded as pagination, in the
+// order in which they appeared.
+func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, []Discarded, error) {
 	total := len(traces)
 	aggs := map[candKey]*candAgg{}
 	var order []candKey
+	var discarded []Discarded
+	discardedAt := map[string]int{} // query -> index in discarded
 	for ti, spans := range traces {
+		counted := map[string]bool{} // a trace counts once per query, even with several occurrences
 		for _, occ := range FindOccurrences(spans) {
+			if paginationShape(occ) {
+				i, seen := discardedAt[occ.Query]
+				if !seen {
+					i = len(discarded)
+					discardedAt[occ.Query] = i
+					discarded = append(discarded, Discarded{Query: occ.Query})
+				}
+				if !counted[occ.Query] {
+					counted[occ.Query] = true
+					discarded[i].Traces++
+				}
+				continue
+			}
 			loc, reason, warns := LocateWithWarnings(env, sha, occ.Spans)
 			k := candKey{query: occ.Query}
 			if loc != nil {
@@ -138,7 +162,7 @@ func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, error) {
 		out = append(out, buildCandidate(a, affected, total))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	return out, nil
+	return out, discarded, nil
 }
 
 func buildCandidate(a *candAgg, affected, total int) Candidate {

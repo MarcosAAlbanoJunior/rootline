@@ -84,7 +84,7 @@ func TestDetectCarriesLocationWarningsToTheCandidate(t *testing.T) {
 	env := failingEnv{failResolve: map[string]bool{
 		"internal/orders/repository.go": true, "internal/orders/service.go": true,
 	}}
-	cands, err := detector.Detect(env, "abc1234", traces(4, 4, healthy))
+	cands, _, err := detector.Detect(env, "abc1234", traces(4, 4, healthy))
 	if err != nil {
 		t.Fatal(err)
 	}
