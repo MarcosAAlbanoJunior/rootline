@@ -63,7 +63,7 @@ func (r *repo) commit(msg string) string {
 	return r.git("rev-parse", "HEAD")
 }
 
-func TestAC32_ReadBlobReadsTheCommitNotTheWorkingCopy(t *testing.T) {
+func TestReadBlob_ReadsTheCommitNotTheWorkingCopy(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.go", "package a // committed\n")
 	sha := r.commit("c1")
@@ -78,7 +78,7 @@ func TestAC32_ReadBlobReadsTheCommitNotTheWorkingCopy(t *testing.T) {
 	}
 }
 
-func TestAC32_RevListIsOldestFirstAndExcludesBase(t *testing.T) {
+func TestRevList_IsOldestFirstAndExcludesBase(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.txt", "1\n")
 	base := r.commit("c1")
@@ -96,7 +96,7 @@ func TestAC32_RevListIsOldestFirstAndExcludesBase(t *testing.T) {
 	}
 }
 
-func TestAC32_ChangedLinesNewSide(t *testing.T) {
+func TestChangedLines_ReportsNewSideRanges(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.go", "l1\nl2\nl3\nl4\nl5\nl6\nl7\n")
 	r.write("other.go", "x\ny\n")
@@ -121,7 +121,7 @@ func TestAC32_ChangedLinesNewSide(t *testing.T) {
 	}
 }
 
-func TestAC30_ResolvePathFindsTheModuleDirectory(t *testing.T) {
+func TestResolvePath_FindsTheModuleDirectory(t *testing.T) {
 	r := newRepo(t)
 	r.write("demo-app/go.mod", "module example.com/demo-app\n\ngo 1.27\n")
 	r.write("demo-app/internal/orders/service.go", "package orders\n")
@@ -146,7 +146,7 @@ func TestAC30_ResolvePathFindsTheModuleDirectory(t *testing.T) {
 	}
 }
 
-func TestAC30_ResolvePathRootModule(t *testing.T) {
+func TestResolvePath_RootModule(t *testing.T) {
 	r := newRepo(t)
 	r.write("go.mod", "module example.com/root\n")
 	r.write("main.go", "package main\n")
@@ -161,7 +161,7 @@ func TestAC30_ResolvePathRootModule(t *testing.T) {
 	}
 }
 
-func TestAC30_ResolvePathAmbiguityIsAnError(t *testing.T) {
+func TestResolvePath_AmbiguityIsAnError(t *testing.T) {
 	r := newRepo(t)
 	r.write("a/go.mod", "module example.com/dup\n")
 	r.write("b/go.mod", "module example.com/dup\n")
@@ -173,7 +173,7 @@ func TestAC30_ResolvePathAmbiguityIsAnError(t *testing.T) {
 	}
 }
 
-func TestAC31_ReadBlobRefusesNonBlobEntries(t *testing.T) {
+func TestReadBlob_RefusesNonBlobEntries(t *testing.T) {
 	r := newRepo(t)
 	r.write("ok.go", "package ok\n")
 	if err := os.Symlink("/etc/passwd", filepath.Join(r.dir, "link.go")); err != nil {

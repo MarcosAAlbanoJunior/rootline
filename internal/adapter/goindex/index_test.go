@@ -1,15 +1,3 @@
-// Expected API (package goindex):
-//
-//	type BlobReader interface { ReadBlob(sha, path string) ([]byte, error) }
-//	func New(r BlobReader) *Index
-//	// InLoop: is `line` strictly inside the body of a ForStmt or RangeStmt (not on the
-//	// "for ..." header line, not on the closing brace)?
-//	func (i *Index) InLoop(sha, file string, line int) (bool, error)
-//	// FuncRange: line range [start,end] of the FuncDecl. `function` is the runtime symbol, with or
-//	// without the import path, e.g. "github.com/x/orders.(*Service).List.func1",
-//	// "orders.Repo.Get", "github.com/x/orders.Helper-range1". Closures (.funcN) and range-over-func
-//	// bodies (-rangeN) resolve to the enclosing declared function. found=false if absent.
-//	func (i *Index) FuncRange(sha, file, function string) (start, end int, found bool, err error)
 package goindex_test
 
 import (
@@ -71,7 +59,7 @@ func newIndex() *goindex.Index {
 	return goindex.New(fakeBlobs{"sha1:svc.go": src})
 }
 
-func TestAC28_InLoop(t *testing.T) {
+func TestInLoop_IsTrueOnlyStrictlyInsideTheLoopBody(t *testing.T) {
 	tests := []struct {
 		line int
 		want bool
@@ -100,13 +88,13 @@ func TestAC28_InLoop(t *testing.T) {
 	}
 }
 
-func TestAC28_InLoopReadErrorIsReported(t *testing.T) {
+func TestInLoop_ReadErrorIsReported(t *testing.T) {
 	if _, err := newIndex().InLoop("sha1", "missing.go", 3); err == nil {
 		t.Fatal("expected an error when the blob cannot be read")
 	}
 }
 
-func TestAC28_FuncRange(t *testing.T) {
+func TestFuncRange_ResolvesRuntimeSymbolsToTheDeclaredFunction(t *testing.T) {
 	tests := []struct {
 		function   string
 		start, end int
@@ -132,7 +120,7 @@ func TestAC28_FuncRange(t *testing.T) {
 	}
 }
 
-func TestAC28_FuncRangeNotFound(t *testing.T) {
+func TestFuncRange_NotFound(t *testing.T) {
 	_, _, found, err := newIndex().FuncRange("sha1", "svc.go", "github.com/x/orders.DoesNotExist")
 	if err != nil {
 		t.Fatal(err)

@@ -1,12 +1,3 @@
-// Expected API (package otlpfile; returns trace.Span, see internal/trace/operation_test.go):
-//
-//	func ReadFile(path string) ([]trace.Span, error)
-//	func Read(r io.Reader) ([]trace.Span, error)
-//
-// Input: OTLP JSON lines as written by the Collector file exporter (one ExportTraceServiceRequest
-// per line). Attribute values map to: string, int64, bool, []string. Resource attributes
-// service.name / service.version go to Span.Service / Span.Version. Span order is file order.
-// A malformed line makes the whole read fail with an error that contains "line <n>"; no partial result.
 package otlpfile_test
 
 import (
@@ -19,7 +10,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
-func TestAC18_ReadsSampleFile(t *testing.T) {
+func TestReadFile_ReadsSampleFile(t *testing.T) {
 	spans, err := otlpfile.ReadFile("testdata/sample.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +70,7 @@ func TestAC18_ReadsSampleFile(t *testing.T) {
 	}
 }
 
-func TestAC19_MalformedLineReportsLineNumberAndNoPartialResult(t *testing.T) {
+func TestRead_MalformedLineReportsLineNumberAndNoPartialResult(t *testing.T) {
 	good := `{"resourceSpans":[]}`
 	input := good + "\n" + good + "\n" + `{"resourceSpans": [ not json` + "\n" + good + "\n"
 	spans, err := otlpfile.Read(strings.NewReader(input))

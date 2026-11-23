@@ -1,6 +1,4 @@
-// Slice 2, AC18: the manifest carries the symptom block.
-//
-// Expected API: Manifest gains Symptom fixture.Symptom `json:"symptom"`.
+// The manifest carries the symptom block.
 package recording_test
 
 import (
@@ -14,7 +12,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/recording"
 )
 
-func TestAC18_ManifestSymptomRoundTrip(t *testing.T) {
+func TestManifest_SymptomRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	in := sampleManifest()
 	in.Symptom = fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim", Baseline: "boa"}

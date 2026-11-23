@@ -6,8 +6,8 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
 )
 
-// AC18: Record copies the scenario's symptom block into the manifest.
-func TestAC18_RecordCopiesTheScenarioSymptomIntoTheManifest(t *testing.T) {
+// Record copies the scenario's symptom block into the manifest.
+func TestBuildManifest_CopiesTheScenarioSymptomIntoTheManifest(t *testing.T) {
 	sym := fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"}
 	sc := fixture.Scenario{Name: "x", Symptom: sym}
 	gen := fixture.Generated{Commits: []fixture.Commit{{Label: "boa", SHA: "sha-boa"}, {Label: "ruim", SHA: "sha-ruim"}}}

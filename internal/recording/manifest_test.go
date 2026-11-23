@@ -1,17 +1,3 @@
-// Expected API (package recording):
-//
-//	const SeedID = "deterministic-sql-v1"
-//	type CommitRef struct { Label, SHA string }
-//	type LoadConfig struct { Requests, Rate int; Route string }
-//	type Manifest struct {
-//	    Scenario  string
-//	    Commits   []CommitRef
-//	    AnswerKey fixture.AnswerKey // with computed line
-//	    Seed      string            // SeedID
-//	    Load      LoadConfig
-//	}
-//	func WriteManifest(path string, m Manifest) error
-//	func ReadManifest(path string) (Manifest, error)
 package recording_test
 
 import (
@@ -42,7 +28,7 @@ func sampleManifest() recording.Manifest {
 	}
 }
 
-func TestAC17_ManifestRoundTrip(t *testing.T) {
+func TestManifest_RoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	in := sampleManifest()
 	if err := recording.WriteManifest(path, in); err != nil {
@@ -57,7 +43,7 @@ func TestAC17_ManifestRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAC17_ManifestContents(t *testing.T) {
+func TestManifest_Contents(t *testing.T) {
 	if recording.SeedID != "deterministic-sql-v1" {
 		t.Fatalf("SeedID = %q", recording.SeedID)
 	}

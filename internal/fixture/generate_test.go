@@ -1,25 +1,3 @@
-// Expected API (package fixture):
-//
-//	type Options struct { ScenarioDir, SourceDir, OutDir string }
-//	type Commit struct { Label, SHA string }
-//	type AnswerKey struct {
-//	    Cause, Function, File, Marker, CommitLabel string
-//	    Line int // computed by the generator
-//	}
-//	type Generated struct { RepoDir string; Commits []Commit; AnswerKey AnswerKey }
-//	// Generate creates <OutDir>/repo (git repo with one commit per scenario commit) and
-//	// <OutDir>/answer_key.json (JSON encoding of AnswerKey, with Line).
-//	func Generate(opts Options) (Generated, error)
-//
-// scenario.json (schema fixed by these tests):
-//
-//	{"name": "n1-basic",
-//	 "commits": [{"label": "referencia"}, {"label": "regressao", "patch": "regressao.patch"}],
-//	 "answer": {"cause": "n_plus_one", "function": "<symbol>", "file": "<repo path>",
-//	            "marker": " // rootline:answer", "commit": "regressao"}}
-//
-// SourceDir is the rootline root; the generator copies SourceDir/demo-app and SourceDir/hook
-// (without bin/ and out/) into commit 1 and applies the patch for commit 2.
 package fixture_test
 
 import (
@@ -132,7 +110,7 @@ func generate(t *testing.T, source, scenario string) fixture.Generated {
 	return g
 }
 
-func TestAC11_TwoCommitsInScenarioOrder(t *testing.T) {
+func TestGenerate_TwoCommitsInScenarioOrder(t *testing.T) {
 	source, scenario := setup(t)
 	g := generate(t, source, scenario)
 
@@ -166,7 +144,7 @@ func TestAC11_TwoCommitsInScenarioOrder(t *testing.T) {
 	}
 }
 
-func TestAC12_AnswerKeyPointsToTheCallInsideTheLoopAndMarkerIsRemoved(t *testing.T) {
+func TestGenerate_AnswerKeyPointsToTheCallInsideTheLoopAndMarkerIsRemoved(t *testing.T) {
 	source, scenario := setup(t)
 	g := generate(t, source, scenario)
 
@@ -207,7 +185,7 @@ func TestAC12_AnswerKeyPointsToTheCallInsideTheLoopAndMarkerIsRemoved(t *testing
 	}
 }
 
-func TestAC13_NoCommitContainsTheMarkerString(t *testing.T) {
+func TestGenerate_NoCommitContainsTheMarkerString(t *testing.T) {
 	source, scenario := setup(t)
 	g := generate(t, source, scenario)
 
@@ -225,7 +203,7 @@ func TestAC13_NoCommitContainsTheMarkerString(t *testing.T) {
 	}
 }
 
-func TestAC14_FixedIdentityDatesAndDeterministicSHAs(t *testing.T) {
+func TestGenerate_FixedIdentityDatesAndDeterministicSHAs(t *testing.T) {
 	source, scenario := setup(t)
 	g1 := generate(t, source, scenario)
 
