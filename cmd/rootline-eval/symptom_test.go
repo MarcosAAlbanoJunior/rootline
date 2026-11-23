@@ -21,13 +21,13 @@ func manifestWith(sym fixture.Symptom) recording.Manifest {
 			{Label: "boa", SHA: "sha-boa"},
 			{Label: "ruim", SHA: "sha-ruim"},
 		},
-		Load:    recording.LoadConfig{Route: "/things/{id}"},
+		Load:    recording.LoadConfig{Route: "/load/{id}"},
 		Symptom: sym,
 	}
 }
 
 func TestSymptomFromManifest_SymptomComesFromTheManifest(t *testing.T) {
-	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
+	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", Route: "/things/{id}", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
 	got, err := symptomFromManifest(m)
 	if err != nil {
 		t.Fatal(err)
@@ -39,13 +39,43 @@ func TestSymptomFromManifest_SymptomComesFromTheManifest(t *testing.T) {
 }
 
 func TestSymptomFromManifest_EmptyBaselineGivesEmptyBaselineVersion(t *testing.T) {
-	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim"})
+	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", Route: "/things/{id}", RouteSource: "span_name", Bad: "ruim"})
 	got, err := symptomFromManifest(m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.BaselineVersion != "" || got.BadVersion != "sha-ruim" {
 		t.Fatalf("Symptom = %+v", got)
+	}
+}
+
+// The analyzed route comes from symptom.route, never from the load (which may send several routes).
+func TestSymptomFromManifest_RouteComesFromTheSymptomNotFromTheLoad(t *testing.T) {
+	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", Route: "/things/{id}", RouteSource: "span_name", Bad: "ruim"})
+	got, err := symptomFromManifest(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Operation.Route != "/things/{id}" {
+		t.Fatalf("Route = %q, want the symptom route %q", got.Operation.Route, "/things/{id}")
+	}
+}
+
+// A recording made before the symptom had a route has no default: the error says to record again.
+func TestScoreOne_ManifestWithoutSymptomRouteIsAnErrorCitingTheFieldPathAndRecordAgain(t *testing.T) {
+	rec := t.TempDir()
+	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim"})
+	if err := recording.WriteManifest(filepath.Join(rec, "manifest.json"), m); err != nil {
+		t.Fatal(err)
+	}
+	_, err := scoreOne(rec)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	for _, want := range []string{"symptom.route", rec, "record again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to cite %q", err, want)
+		}
 	}
 }
 
@@ -65,7 +95,7 @@ func TestScoreOne_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing
 // unlike the n1-basic ones, the analysis receives those values and the Result is scored against
 // the manifest's own labels.
 func TestScoreManifest_UsesTheManifestSymptomAndLabels(t *testing.T) {
-	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
+	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "POST", Route: "/things/{id}", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"})
 	m.AnswerKey = fixture.AnswerKey{Cause: "n_plus_one", Function: "f", File: "a.go", Line: 7, CommitLabel: "ruim"}
 
 	var got analysis.Symptom

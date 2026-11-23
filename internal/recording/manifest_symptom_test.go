@@ -15,7 +15,7 @@ import (
 func TestManifest_SymptomRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	in := sampleManifest()
-	in.Symptom = fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim", Baseline: "boa"}
+	in.Symptom = fixture.Symptom{Service: "svc-x", Method: "GET", Route: "/things/{id}", RouteSource: "span_name", Bad: "ruim", Baseline: "boa"}
 	if err := recording.WriteManifest(path, in); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestManifest_SymptomRoundTrip(t *testing.T) {
 		t.Fatalf("round trip lost the symptom:\n in: %+v\nout: %+v", in, out)
 	}
 	raw, _ := os.ReadFile(path)
-	for _, want := range []string{`"symptom"`, `"service"`, `"route_source"`, `"bad"`, `"baseline"`} {
+	for _, want := range []string{`"symptom"`, `"service"`, `"route": "/things/{id}"`, `"route_source"`, `"bad"`, `"baseline"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("manifest.json lacks %s:\n%s", want, raw)
 		}

@@ -1,5 +1,6 @@
 {
   "name": "n1-basic",
+  "assumption": "caso básico: loop no service, query no repository",
   "commits": [
     {"label": "referencia"},
     {"label": "regressao", "patch": "regressao.patch"}
@@ -11,5 +12,5 @@
     "marker": " // rootline:answer",
     "commit": "regressao"
   },
-  "symptom": {"service": "demo-app", "method": "GET", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"}
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/orders", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"}
 }

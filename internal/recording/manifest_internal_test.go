@@ -8,7 +8,7 @@ import (
 
 // Record copies the scenario's symptom block into the manifest.
 func TestBuildManifest_CopiesTheScenarioSymptomIntoTheManifest(t *testing.T) {
-	sym := fixture.Symptom{Service: "svc-x", Method: "POST", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"}
+	sym := fixture.Symptom{Service: "svc-x", Method: "POST", Route: "/things/{id}", RouteSource: "http_route", Bad: "ruim", Baseline: "boa"}
 	sc := fixture.Scenario{Name: "x", Symptom: sym}
 	gen := fixture.Generated{Commits: []fixture.Commit{{Label: "boa", SHA: "sha-boa"}, {Label: "ruim", SHA: "sha-ruim"}}}
 
