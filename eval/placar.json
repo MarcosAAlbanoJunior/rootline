@@ -1,28 +1,35 @@
 {
   "detectors_only": {
     "cause": {
-      "hits": 3,
-      "total": 3
+      "hits": 5,
+      "total": 5
     },
     "line": {
-      "hits": 3,
-      "total": 3
+      "hits": 5,
+      "total": 5
     },
     "commit": {
-      "hits": 3,
-      "total": 3
+      "hits": 5,
+      "total": 5
     },
     "strict": {
-      "hits": 3,
-      "total": 3
+      "hits": 5,
+      "total": 5
     },
     "line_levels": {
-      "level_1": 3,
+      "level_1": 5,
       "level_2": 0,
       "none": 0
     },
     "scenarios": {
       "n1-basic": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1
+      },
+      "n1-errgroup": {
         "cause": true,
         "line": true,
         "commit": true,
@@ -37,6 +44,13 @@
         "line_level": 1
       },
       "n1-rangefunc": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1
+      },
+      "n1-workpool": {
         "cause": true,
         "line": true,
         "commit": true,
