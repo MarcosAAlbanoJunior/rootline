@@ -11,7 +11,8 @@ const (
 	TypeNPlusOne = "n_plus_one"
 )
 
-// Result is the analysis output. Its JSON form is the "minimal Result format" of the slice spec.
+// Result is the analysis output. Its JSON form is the output contract of the CLI (keys in English,
+// snake_case).
 type Result struct {
 	SchemaVersion string      `json:"schema_version"`
 	Mode          string      `json:"mode"`

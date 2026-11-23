@@ -1,10 +1,4 @@
-// Slice 2, AC23 to AC27: the distribution of location levels in the Line metric.
-//
-// Expected API (package evaluation):
-//
-//	Found gains: Level int // 0 = absent, 1, 2
-//	type LineLevels struct { Level1, Level2, None int } // json: level_1, level_2, none
-//	Score gains: LineLevels LineLevels `json:"line_levels"`
+// The distribution of location levels in the Line metric.
 package evaluation_test
 
 import (
@@ -24,7 +18,7 @@ func foundAt(level int, hasLocation bool, line int) evaluation.Found {
 		HasLocation: hasLocation, File: "a.go", Line: line, CommitSHA: "sha"}
 }
 
-func TestAC24_EachAddIncrementsExactlyOneLevel(t *testing.T) {
+func TestScoreAdd_EachAddIncrementsExactlyOneLevel(t *testing.T) {
 	var s evaluation.Score
 	s.Add(evaluation.ScoreOne(levelKey, foundAt(1, true, 7), levelLabels))
 	s.Add(evaluation.ScoreOne(levelKey, foundAt(1, true, 9), levelLabels))
@@ -41,7 +35,7 @@ func TestAC24_EachAddIncrementsExactlyOneLevel(t *testing.T) {
 	}
 }
 
-func TestAC25_OnlyLevelOneWithCorrectFileAndLineIsAHit(t *testing.T) {
+func TestScoreOne_OnlyLevelOneWithCorrectFileAndLineIsAHit(t *testing.T) {
 	var s evaluation.Score
 	s.Add(evaluation.ScoreOne(levelKey, foundAt(1, true, 7), levelLabels))  // hit
 	s.Add(evaluation.ScoreOne(levelKey, foundAt(1, true, 8), levelLabels))  // wrong line
@@ -56,7 +50,7 @@ func scoreWithLevels(l evaluation.LineLevels) evaluation.Score {
 	return evaluation.Score{Cause: one, Line: one, Commit: one, Strict: one, LineLevels: l}
 }
 
-func TestAC26_RegressionsIgnoreLineLevels(t *testing.T) {
+func TestRegressions_IgnoreLineLevels(t *testing.T) {
 	base := evaluation.Scoreboard{"detectors_only": scoreWithLevels(evaluation.LineLevels{Level1: 1})}
 	cur := evaluation.Scoreboard{"detectors_only": scoreWithLevels(evaluation.LineLevels{Level2: 1})}
 	if reg := evaluation.Regressions(base, cur); len(reg) != 0 {
@@ -64,7 +58,7 @@ func TestAC26_RegressionsIgnoreLineLevels(t *testing.T) {
 	}
 }
 
-func TestAC27_ReadsScoreboardWithoutLineLevels(t *testing.T) {
+func TestReadScoreboard_AcceptsScoreboardWithoutLineLevels(t *testing.T) {
 	old := `{"detectors_only":{"cause":{"hits":1,"total":1},"line":{"hits":1,"total":1},"commit":{"hits":1,"total":1},"strict":{"hits":1,"total":1}}}`
 	got, err := evaluation.ReadScoreboard(strings.NewReader(old))
 	if err != nil {
@@ -78,7 +72,7 @@ func TestAC27_ReadsScoreboardWithoutLineLevels(t *testing.T) {
 	}
 }
 
-func TestAC24_LineLevelsJSONShape(t *testing.T) {
+func TestLineLevels_JSONShape(t *testing.T) {
 	in := evaluation.Scoreboard{"detectors_only": scoreWithLevels(evaluation.LineLevels{Level1: 1})}
 	var buf bytes.Buffer
 	if err := evaluation.WriteScoreboard(&buf, in); err != nil {

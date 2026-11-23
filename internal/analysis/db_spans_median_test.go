@@ -1,4 +1,4 @@
-// Slice 2, AC14 and AC15: db_query_spans_median excludes prepare spans with the detector's rule.
+// db_query_spans_median excludes prepare spans with the detector's rule.
 package analysis_test
 
 import (
@@ -45,13 +45,13 @@ func badStats(t *testing.T, mark bool) float64 {
 	return stats[0]["db_query_spans_median"].(float64)
 }
 
-func TestAC14_MedianExcludesInferredPrepare(t *testing.T) {
+func TestAnalyze_DBSpansMedianExcludesInferredPrepare(t *testing.T) {
 	if got := badStats(t, false); got != 3 {
 		t.Fatalf("db_query_spans_median = %v, want 3", got)
 	}
 }
 
-func TestAC15_MedianWithPhaseAttributeUnchanged(t *testing.T) {
+func TestAnalyze_DBSpansMedianWithPhaseAttributeUnchanged(t *testing.T) {
 	if got := badStats(t, true); got != 3 {
 		t.Fatalf("db_query_spans_median = %v, want 3", got)
 	}

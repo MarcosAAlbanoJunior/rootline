@@ -1,40 +1,3 @@
-// Expected API (package detector; imports only stdlib and internal/trace):
-//
-//	const MinRepetitions = 5; MaxMedianRows = 10; MinAffectedTraces = 3; MinAffectedRatio = 0.5
-//
-//	type Occurrence struct {
-//	    TraceID, ParentSpanID, Query string // Query is normalized
-//	    Spans         []trace.Span          // the repeated query spans
-//	    PlusOne       bool
-//	    PhaseInferred bool
-//	    RowsMedian    int
-//	}
-//	// FindOccurrences works on the spans of ONE trace.
-//	func FindOccurrences(spans []trace.Span) []Occurrence
-//
-//	// Env is the port consumed by location (implemented by fakes here).
-//	type Env interface {
-//	    ResolvePath(sha, modulePath, relFile string) (string, error) // module-relative -> repo-relative
-//	    InLoop(sha, file string, line int) (bool, error)
-//	}
-//	type Location struct { Level int; Function, File string; Line int; InLoop bool }
-//	// Locate applies the level-1 rule; reason is "no_app_stack" when the location is nil.
-//	func Locate(env Env, sha string, spans []trace.Span) (loc *Location, reason string)
-//
-//	type Candidate struct {
-//	    Query string; Location *Location; LocationReason string
-//	    ModulePath string; Stack []StackFrame        // stack of a representative span, innermost first
-//	    Confidence string                            // "high" | "medium"
-//	    Score float64                                // affected/total + 0.5 if plus-one (commit bonus is added later)
-//	    TracesAffected, TracesTotal int
-//	    GroupSizeMedian, RowsMedian int
-//	    PlusOneMatchedRatio float64
-//	    PhaseInferred bool
-//	    SampleTraceID, SampleParentSpanID string
-//	}
-//	type StackFrame struct { Function, File string; Line int } // File is module-relative
-//	// Detect receives the traces (one []Span each) of the entry operation in the bad version.
-//	func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, error)
 package detector_test
 
 import (
@@ -126,7 +89,7 @@ func itemsOccurrences(t *testing.T, spans []trace.Span) []detector.Occurrence {
 	return out
 }
 
-func TestAC22_PlusOneOccurrence(t *testing.T) {
+func TestFindOccurrences_PlusOneOccurrence(t *testing.T) {
 	occ := itemsOccurrences(t, plusOneThenRepeats("t1", 10, 10, 3))
 	if len(occ) != 1 {
 		t.Fatalf("want 1 occurrence, got %d", len(occ))
@@ -139,7 +102,7 @@ func TestAC22_PlusOneOccurrence(t *testing.T) {
 	}
 }
 
-func TestAC23_NoOccurrence(t *testing.T) {
+func TestFindOccurrences_NoOccurrence(t *testing.T) {
 	split := append(repeated("t", "p1", 0, 4, 3), repeated("t", "p2", 10, 3, 3)...)
 	split = append(split, repeated("t", "p3", 20, 3, 3)...)
 	tests := []struct {
@@ -160,7 +123,7 @@ func TestAC23_NoOccurrence(t *testing.T) {
 	}
 }
 
-func TestAC23_BoundariesAreInclusive(t *testing.T) {
+func TestFindOccurrences_BoundariesAreInclusive(t *testing.T) {
 	if occ := itemsOccurrences(t, repeated("t", "root", 0, 5, 3)); len(occ) != 1 {
 		t.Errorf("5 repetitions must be reported, got %d occurrences", len(occ))
 	}
@@ -169,7 +132,7 @@ func TestAC23_BoundariesAreInclusive(t *testing.T) {
 	}
 }
 
-func TestAC24_PlusOneFalse(t *testing.T) {
+func TestFindOccurrences_PlusOneFalse(t *testing.T) {
 	tests := []struct {
 		name  string
 		spans []trace.Span
@@ -221,7 +184,7 @@ func traces(n, with int, mk func(id string) []trace.Span) [][]trace.Span {
 
 func healthy(id string) []trace.Span { return plusOneThenRepeats(id, 10, 10, 3) }
 
-func TestAC24_CandidateConfidenceAndScore(t *testing.T) {
+func TestDetect_CandidateConfidenceAndScore(t *testing.T) {
 	t.Run("with +1: high and 1.5", func(t *testing.T) {
 		c := mustOne(t, traces(4, 4, healthy))
 		if c.Confidence != "high" || c.Score != 1.5 || c.PlusOneMatchedRatio != 1.0 {
@@ -266,7 +229,7 @@ func mustOne(t *testing.T, trs [][]trace.Span) detector.Candidate {
 	return items[0]
 }
 
-func TestAC25_PrepareSpansAreNotCounted(t *testing.T) {
+func TestFindOccurrences_PrepareSpansAreNotCounted(t *testing.T) {
 	t.Run("explicit prepare phase", func(t *testing.T) {
 		spans := append(repeated("t", "root", 0, 10, 3, phase("prepare")), repeated("t2", "root", 20, 3, 3)...)
 		if occ := itemsOccurrences(t, spans); len(occ) != 0 {
@@ -299,7 +262,7 @@ func TestAC25_PrepareSpansAreNotCounted(t *testing.T) {
 	})
 }
 
-func TestAC26_CandidateThresholds(t *testing.T) {
+func TestDetect_CandidateThresholds(t *testing.T) {
 	tests := []struct {
 		name         string
 		total, with  int
@@ -333,7 +296,7 @@ func spansWithStack(entries ...string) []trace.Span {
 	return repeated("t", "root", 0, 5, 3, stack(entries...))
 }
 
-func TestAC27_Locate(t *testing.T) {
+func TestLocate_AppliesTheLevelOneRule(t *testing.T) {
 	outer := modPath + "/internal/orders.(*Handler).Get"
 	tests := []struct {
 		name       string

@@ -9,7 +9,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
-// Initial N+1 criteria (adjustable; see the slice-1 spec).
+// N+1 thresholds: initial values, to be calibrated with real data.
 const (
 	MinRepetitions    = 5
 	MaxMedianRows     = 10

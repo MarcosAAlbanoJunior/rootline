@@ -1,21 +1,3 @@
-// Expected API (package correlation; stdlib only):
-//
-//	type Frame struct { Function, File string; Line int } // File is module-relative
-//	type Ports interface {
-//	    RevList(base, bad string) ([]string, error)                         // oldest first
-//	    ChangedLines(commit string) (map[string][][2]int, error)            // repo path -> new-side [start,end]
-//	    FuncRange(sha, file, function string) (start, end int, found bool, err error) // file is a repo path
-//	    ResolvePath(sha, modulePath, relFile string) (string, error)
-//	}
-//	type Input struct {
-//	    BaseSHA, BadSHA  string
-//	    ModulePath       string
-//	    Stack            []Frame // innermost first
-//	    LocationFunction string  // function of the candidate location
-//	}
-//	type Touch struct { Commit, Function, Strength string } // Strength: "location" | "stack"
-//	// One Touch per commit that touches the stack (strongest strength wins), in commit order.
-//	func StackTouches(p Ports, in Input) ([]Touch, error)
 package correlation_test
 
 import (
@@ -77,7 +59,7 @@ var input = correlation.Input{
 	LocationFunction: svcFn,
 }
 
-func TestAC33_TouchOnLocationFunction(t *testing.T) {
+func TestStackTouches_TouchOnLocationFunction(t *testing.T) {
 	p := ports(map[string]map[string][][2]int{"c1": {"demo-app/internal/orders/service.go": {{40, 44}}}})
 	got, err := correlation.StackTouches(p, input)
 	if err != nil {
@@ -94,7 +76,7 @@ func TestAC33_TouchOnLocationFunction(t *testing.T) {
 	}
 }
 
-func TestAC33_TouchOnOtherStackFrame(t *testing.T) {
+func TestStackTouches_TouchOnOtherStackFrame(t *testing.T) {
 	p := ports(map[string]map[string][][2]int{"c1": {"demo-app/internal/orders/repository.go": {{31, 31}}}})
 	got, err := correlation.StackTouches(p, input)
 	if err != nil {
@@ -106,7 +88,7 @@ func TestAC33_TouchOnOtherStackFrame(t *testing.T) {
 	}
 }
 
-func TestAC33_NoTouchOutsideTheStack(t *testing.T) {
+func TestStackTouches_NoTouchOutsideTheStack(t *testing.T) {
 	tests := []struct {
 		name    string
 		changes map[string][][2]int
@@ -129,7 +111,7 @@ func TestAC33_NoTouchOutsideTheStack(t *testing.T) {
 	}
 }
 
-func TestAC33_RangeBoundariesAreInclusive(t *testing.T) {
+func TestStackTouches_RangeBoundariesAreInclusive(t *testing.T) {
 	p := ports(map[string]map[string][][2]int{"c1": {"demo-app/internal/orders/service.go": {{50, 60}}}})
 	got, _ := correlation.StackTouches(p, input)
 	if len(got) != 1 {
@@ -137,7 +119,7 @@ func TestAC33_RangeBoundariesAreInclusive(t *testing.T) {
 	}
 }
 
-func TestAC33_StrongestStrengthWinsPerCommitAndOrderIsKept(t *testing.T) {
+func TestStackTouches_StrongestStrengthWinsPerCommitAndOrderIsKept(t *testing.T) {
 	p := ports(map[string]map[string][][2]int{
 		"c1": {"demo-app/internal/orders/repository.go": {{30, 30}}},
 		"c2": {

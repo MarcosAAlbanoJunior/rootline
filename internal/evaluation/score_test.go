@@ -1,19 +1,3 @@
-// Expected API (package evaluation; imports only stdlib):
-//
-//	type Key struct { CauseType, Function, File string; Line int; CommitLabel string } // CommitLabel "" = no commit expected
-//	type Found struct {
-//	    HasCause bool; CauseType, Function string
-//	    HasLocation bool; File string; Line int  // level-1 location of the Result
-//	    CommitSHA string                         // "" = Result has no commit
-//	}
-//	type Outcome struct { Cause, Line, Commit, Strict bool }
-//	// shaToLabel is the manifest mapping (commit SHA -> label).
-//	func ScoreOne(key Key, found Found, shaToLabel map[string]string) Outcome
-//
-//	type Metric struct { Hits, Total int `json:"hits"`, `json:"total"` }
-//	func (m Metric) String() string // "hits/total, pct%" with integer (floor) percent, e.g. "2/3, 66%"
-//	type Score struct { Cause, Line, Commit, Strict Metric }
-//	func (s *Score) Add(o Outcome)
 package evaluation_test
 
 import (
@@ -34,14 +18,14 @@ var perfect = evaluation.Found{
 	HasLocation: true, File: "demo-app/internal/orders/service.go", Line: 42, CommitSHA: "sha-reg",
 }
 
-func TestAC36_AllHitsIsStrict(t *testing.T) {
+func TestScoreOne_AllHitsIsStrict(t *testing.T) {
 	got := evaluation.ScoreOne(key, perfect, labels)
 	if want := (evaluation.Outcome{Cause: true, Line: true, Commit: true, Strict: true}); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
 
-func TestAC36_Misses(t *testing.T) {
+func TestScoreOne_Misses(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(f *evaluation.Found)
@@ -69,7 +53,7 @@ func TestAC36_Misses(t *testing.T) {
 	}
 }
 
-func TestAC36_CommitBothNullIsAHit(t *testing.T) {
+func TestScoreOne_CommitBothNullIsAHit(t *testing.T) {
 	k := key
 	k.CommitLabel = ""
 	f := perfect
@@ -83,7 +67,7 @@ func TestAC36_CommitBothNullIsAHit(t *testing.T) {
 	}
 }
 
-func TestAC36_ScoreAccumulatesAndFormats(t *testing.T) {
+func TestScore_AccumulatesAndFormats(t *testing.T) {
 	var s evaluation.Score
 	s.Add(evaluation.Outcome{Cause: true, Line: true, Commit: true, Strict: true})
 	s.Add(evaluation.Outcome{Cause: true, Line: false, Commit: true, Strict: false})
