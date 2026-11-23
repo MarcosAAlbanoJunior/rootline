@@ -43,8 +43,18 @@ func classify(s trace.Span) (kind Phase, inferred bool) {
 
 type groupKey struct{ parent, query string }
 
-// FindOccurrences finds the N+1 occurrences among the spans of ONE trace.
+type effectiveParent struct {
+	id, collapsedName string
+	collapsedCount    int
+}
+
+// FindOccurrences finds the N+1 occurrences among the spans of ONE trace. Queries are grouped, and
+// their "+1" looked for, under their effective parent (ADR-0020).
 func FindOccurrences(spans []trace.Span) []Occurrence {
+	tree := trace.NewTree(spans)
+	byDirectParent := map[string]effectiveParent{} // the rule depends only on the direct parent
+	parentOf := map[string]string{}                // query span id -> effective parent id
+	collapsed := map[groupKey]effectiveParent{}
 	groups := map[groupKey][]trace.Span{}
 	var order []groupKey
 	var queries []trace.Span
@@ -54,10 +64,19 @@ func FindOccurrences(spans []trace.Span) []Occurrence {
 			continue
 		}
 		queries = append(queries, s)
+		e, ok := byDirectParent[s.ParentSpanID]
+		if !ok {
+			e.id, e.collapsedName, e.collapsedCount = EffectiveParent(tree, s)
+			byDirectParent[s.ParentSpanID] = e
+		}
+		parentOf[s.SpanID] = e.id
 		text, _ := s.String(attrQueryText)
-		k := groupKey{parent: s.ParentSpanID, query: Normalize(text)}
+		k := groupKey{parent: e.id, query: Normalize(text)}
 		if _, seen := groups[k]; !seen {
 			order = append(order, k)
+		}
+		if _, has := collapsed[k]; !has && e.collapsedCount > 0 {
+			collapsed[k] = e
 		}
 		groups[k] = append(groups[k], s)
 	}
@@ -77,7 +96,9 @@ func FindOccurrences(spans []trace.Span) []Occurrence {
 		occ := Occurrence{
 			TraceID: g[0].TraceID, ParentSpanID: k.parent, Query: k.query,
 			Spans: g, RowsMedian: median,
-			PlusOne: plusOne(queries, g),
+			PlusOne:              plusOne(queries, g, k.parent, parentOf),
+			CollapsedParentName:  collapsed[k].collapsedName,
+			CollapsedParentCount: collapsed[k].collapsedCount,
 		}
 		for _, s := range g {
 			if _, inferred := classify(s); inferred {
@@ -109,9 +130,9 @@ func medianInt(v []int) int {
 	return c[len(c)/2]
 }
 
-// plusOne reports whether another query span under the same parent, started before the group,
-// returned a number of rows that matches the group size.
-func plusOne(queries, group []trace.Span) bool {
+// plusOne reports whether another query span under the same effective parent, started before the
+// group, returned a number of rows that matches the group size.
+func plusOne(queries, group []trace.Span, parent string, parentOf map[string]string) bool {
 	first := group[0].Start
 	inGroup := make(map[string]bool, len(group))
 	for _, s := range group {
@@ -119,7 +140,7 @@ func plusOne(queries, group []trace.Span) bool {
 	}
 	size := len(group)
 	for _, s := range queries {
-		if inGroup[s.SpanID] || s.ParentSpanID != group[0].ParentSpanID || !s.Start.Before(first) {
+		if inGroup[s.SpanID] || parentOf[s.SpanID] != parent || !s.Start.Before(first) {
 			continue
 		}
 		r, ok := s.Int(attrRowsAffected)

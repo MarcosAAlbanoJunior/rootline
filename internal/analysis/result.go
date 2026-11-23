@@ -89,6 +89,10 @@ type RepeatedQueryEvidence struct {
 	PhaseInferred       bool    `json:"phase_inferred"`
 	SampleTraceID       string  `json:"sample_trace_id"`
 	SampleParentSpanID  string  `json:"sample_parent_span_id"`
+	// CollapsedParentName and CollapsedParentCount appear only when the group came from collapsing
+	// repeated wrapper spans into the effective parent (ADR-0020).
+	CollapsedParentName  string `json:"collapsed_parent_name,omitempty"`
+	CollapsedParentCount int    `json:"collapsed_parent_count,omitempty"`
 }
 
 // StackTouchEvidence is a commit that changed a function on the candidate's stack.
