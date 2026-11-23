@@ -50,17 +50,35 @@ bin/rootline-eval record --scenario eval/fixtures/scenarios/n1-basic --source . 
 bin/rootline-eval score --recordings /tmp/n1-rec --placar eval/placar.json
 ```
 
+Todos os cenários (é o que o job `placar` do CI faz: grava todos os cenários, em série, e roda um
+`score` sobre o diretório; detalhes em [`eval/README.md`](eval/README.md)):
+
+```sh
+for dir in eval/fixtures/scenarios/*/; do
+  bin/rootline-eval record --scenario "$dir" --source . --out "/tmp/recordings/$(basename "$dir")"
+done
+bin/rootline-eval score --recordings /tmp/recordings --placar eval/placar.json
+```
+
 ## Placar atual
 
 Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 1/1, 100% |
-| Linha | 1/1, 100% |
-| Commit | 1/1, 100% |
-| Estrito | 1/1, 100% |
+| Causa | 3/3, 100% |
+| Linha | 3/3, 100% |
+| Commit | 3/3, 100% |
+| Estrito | 3/3, 100% |
 
-Níveis da Linha: 1=1 2=0 ausente=0.
+Níveis da Linha: 1=3 2=0 ausente=0.
+
+Por cenário:
+
+| Cenário | Causa | Linha | Commit | Estrito | Nível |
+|---|---|---|---|---|---|
+| n1-basic | ok | ok | ok | ok | 1 |
+| n1-helper | ok | ok | ok | ok | 1 |
+| n1-rangefunc | ok | ok | ok | ok | 1 |
 
 O projeto avança em slices verticais; decisões ficam em `docs/adr/`.

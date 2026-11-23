@@ -1,25 +1,48 @@
 {
   "detectors_only": {
     "cause": {
-      "hits": 1,
-      "total": 1
+      "hits": 3,
+      "total": 3
     },
     "line": {
-      "hits": 1,
-      "total": 1
+      "hits": 3,
+      "total": 3
     },
     "commit": {
-      "hits": 1,
-      "total": 1
+      "hits": 3,
+      "total": 3
     },
     "strict": {
-      "hits": 1,
-      "total": 1
+      "hits": 3,
+      "total": 3
     },
     "line_levels": {
-      "level_1": 1,
+      "level_1": 3,
       "level_2": 0,
       "none": 0
+    },
+    "scenarios": {
+      "n1-basic": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1
+      },
+      "n1-helper": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1
+      },
+      "n1-rangefunc": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1
+      }
     }
   }
 }
