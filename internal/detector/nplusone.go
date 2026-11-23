@@ -230,15 +230,18 @@ func Locate(env Env, sha string, spans []trace.Span) (loc *Location, reason stri
 }
 
 // LocateWithWarnings is Locate plus the problems met on the way: a frame whose path could not be
-// resolved is skipped, and a frame whose loop check failed counts as not in a loop. Each problem
-// is reported once.
+// resolved is skipped, a frame whose loop check failed counts as not in a loop, and a chosen
+// location outside a loop gives "loop_not_found" once per stack size of its spans. Each problem is
+// reported once.
 func LocateWithWarnings(env Env, sha string, spans []trace.Span) (loc *Location, reason string, warnings []string) {
 	w := &warnSet{}
 	counts := map[Location]int{}
+	depths := map[Location][]int{} // stack sizes of the spans located there, in span order
 	var order []Location
 	hadStack := false
 	for _, s := range spans {
-		if len(parseStack(s)) > 0 {
+		frames := len(parseStack(s))
+		if frames > 0 {
 			hadStack = true
 		}
 		l, ok := locateSpan(env, sha, s, w)
@@ -249,6 +252,7 @@ func LocateWithWarnings(env Env, sha string, spans []trace.Span) (loc *Location,
 			order = append(order, l)
 		}
 		counts[l]++
+		depths[l] = append(depths[l], frames)
 	}
 	if len(order) == 0 {
 		if hadStack {
@@ -260,6 +264,14 @@ func LocateWithWarnings(env Env, sha string, spans []trace.Span) (loc *Location,
 	for _, l := range order[1:] {
 		if counts[l] > counts[best] {
 			best = l
+		}
+	}
+	if !best.InLoop {
+		// ADR-0017: the level says where the location came from, not whether the loop was found;
+		// that is in InLoop and in this warning (its "loop_not_found:" prefix is the stable id).
+		// It describes the chosen location, so spans located elsewhere do not raise it.
+		for _, n := range depths[best] {
+			w.add(fmt.Sprintf("loop_not_found: no app_stack frame inside a loop (%d frames)", n))
 		}
 	}
 	return &best, "", w.list

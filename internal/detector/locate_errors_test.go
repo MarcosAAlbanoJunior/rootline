@@ -3,6 +3,7 @@ package detector_test
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -59,8 +60,13 @@ func TestLocateResolveFailureOnOuterFrameFallsToTheInnerOne(t *testing.T) {
 	if loc == nil || loc.Line != 30 || loc.InLoop || loc.File != "demo-app/internal/orders/repository.go" {
 		t.Fatalf("got %+v, want the inner frame with in_loop=false", loc)
 	}
-	if !hasWarning(warns, "path_unresolved:") || len(warns) != 1 {
-		t.Fatalf("want exactly one deduplicated warning (5 spans, same frame), got %v", warns)
+	// The inner frame is not in a loop either, so loop_not_found comes along (ADR-0017).
+	want := []string{
+		"path_unresolved: internal/orders/service.go (module github.com/x/demo-app) at abc1234: module not found",
+		"loop_not_found: no app_stack frame inside a loop (2 frames)",
+	}
+	if !reflect.DeepEqual(warns, want) {
+		t.Fatalf("want each warning once (5 spans, same frame), got %v", warns)
 	}
 }
 

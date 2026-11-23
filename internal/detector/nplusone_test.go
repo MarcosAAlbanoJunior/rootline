@@ -2,6 +2,7 @@ package detector_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -387,5 +388,92 @@ func TestLocate_FunctionDropsTheRangeOverFuncSuffix(t *testing.T) {
 				t.Fatalf("got %+v, want Function %q at demo-app/internal/pkg/service.go:17", *loc, tc.want)
 			}
 		})
+	}
+}
+
+// eightFramesWithoutLoop is an app_stack cut at 8 frames before reaching the loop.
+func eightFramesWithoutLoop() []string {
+	var frames []string
+	for i := 1; i <= 8; i++ {
+		frames = append(frames, fmt.Sprintf("%s/internal/deep.F%d internal/deep/f%d.go:%d", modPath, i, i, 10+i))
+	}
+	return frames
+}
+
+const loopNotFound8 = "loop_not_found: no app_stack frame inside a loop (8 frames)"
+
+func count(list []string, s string) int {
+	n := 0
+	for _, x := range list {
+		if x == s {
+			n++
+		}
+	}
+	return n
+}
+
+// ADR-0017: without a frame in a loop the location stays at level 1 on the innermost resolvable
+// frame, with InLoop false, and says so in a warning instead of lowering the level.
+func TestLocateWithWarnings_NoFrameInALoopWarnsLoopNotFound(t *testing.T) {
+	spans := spansWithStack(eightFramesWithoutLoop()...) // 5 spans with the same stack
+	loc, reason, warnings := detector.LocateWithWarnings(fakeEnv{}, "abc1234", spans)
+	if loc == nil {
+		t.Fatalf("location is nil (reason %q)", reason)
+	}
+	if loc.Level != 1 || loc.InLoop || loc.File != "demo-app/internal/deep/f1.go" || loc.Line != 11 {
+		t.Fatalf("got %+v, want level 1, not in loop, at demo-app/internal/deep/f1.go:11", *loc)
+	}
+	if n := count(warnings, loopNotFound8); n != 1 {
+		t.Fatalf("warnings = %q, want %q exactly once", warnings, loopNotFound8)
+	}
+}
+
+func TestLocateWithWarnings_AFrameInALoopGivesNoLoopNotFoundWarning(t *testing.T) {
+	_, _, warnings := detector.LocateWithWarnings(loopAtService, "abc1234", spansWithStack(defaultStack...))
+	for _, w := range warnings {
+		if strings.HasPrefix(w, "loop_not_found:") {
+			t.Fatalf("warnings = %q, want no loop_not_found", warnings)
+		}
+	}
+}
+
+func TestDetect_LoopNotFoundIsReportedOncePerDistinctStack(t *testing.T) {
+	// Same innermost frame (same candidate), two distinct stacks: 8 frames and 3 frames.
+	shorter := eightFramesWithoutLoop()[:3]
+	trs := traces(5, 5, func(id string) []trace.Span {
+		if id == "tr3" || id == "tr4" {
+			return plusOneThenRepeats(id, 10, 10, 3, stack(shorter...))
+		}
+		return plusOneThenRepeats(id, 10, 10, 3, stack(eightFramesWithoutLoop()...))
+	})
+	cands, err := detector.Detect(fakeEnv{}, "abc1234", trs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(cands))
+	}
+	all := cands[0].Warnings
+	if n := count(all, loopNotFound8); n != 1 {
+		t.Fatalf("warnings = %q, want %q exactly once", all, loopNotFound8)
+	}
+	if n := count(all, "loop_not_found: no app_stack frame inside a loop (3 frames)"); n != 1 {
+		t.Fatalf("warnings = %q, want the 3-frame stack reported once too", all)
+	}
+}
+
+// The warning describes the chosen location: a minority span without a loop frame does not raise
+// it when the majority location is inside a loop.
+func TestLocateWithWarnings_NoLoopNotFoundWhenTheChosenLocationIsInALoop(t *testing.T) {
+	spans := append(spansWithStack(defaultStack...), // 5 spans through the loop in the service
+		dbSpan("t", "odd", "root", 90, itemsQuery, 3, stack(repoFunc+" internal/orders/repository.go:99")))
+	loc, _, warnings := detector.LocateWithWarnings(loopAtService, "abc1234", spans)
+	if loc == nil || !loc.InLoop {
+		t.Fatalf("got %+v, want the in-loop location (5 spans vs 1)", loc)
+	}
+	for _, w := range warnings {
+		if strings.HasPrefix(w, "loop_not_found:") {
+			t.Fatalf("warnings = %q, want no loop_not_found for an in-loop location", warnings)
+		}
 	}
 }
