@@ -1,7 +1,7 @@
 ---
 id: ADR-0018
 title: Agrupar as queries repetidas pelo pai efetivo, pulando um nível de wrapper repetido só com filhos de banco
-status: Aceito
+status: Substituído por ADR-0020
 date: 2026-11-23
 summary: O pai efetivo de um span de query é o pai direto ou, quando o pai é um span INTERNAL repetido sob o mesmo avô e ele e seus homônimos só têm filhos de banco, o avô. Um nível só. Usado no agrupamento e no "+1"; o colapso vira evidência sem mudar a confiança.
 modules: [detector, analysis, eval]
