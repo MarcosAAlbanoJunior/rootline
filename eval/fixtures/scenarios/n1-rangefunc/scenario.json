@@ -1,0 +1,17 @@
+{
+  "name": "n1-rangefunc",
+  "assumption": "o loop é o corpo de um for range sobre iter.Seq2 (range-over-func): o runtime nomeia o frame desse corpo com o sufixo -rangeN (History-range1), não com o nome da função declarada",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/history.(*Service).History",
+    "file": "demo-app/internal/history/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/history", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/history", "weight": 1}]}
+}

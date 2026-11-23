@@ -1,0 +1,61 @@
+diff --git a/demo-app/internal/history/repository.go b/demo-app/internal/history/repository.go
+index 548f363..60e44f1 100644
+--- a/demo-app/internal/history/repository.go
++++ b/demo-app/internal/history/repository.go
+@@ -62,10 +62,10 @@ func (r *Repository) Orders(ctx context.Context, customerID int64) iter.Seq2[Ord
+ 	}
+ }
+ 
+-// ItemsByOrders returns the items of all given orders in a single query.
+-func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++// ItemsByOrder returns the items of one order.
++func (r *Repository) ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error) {
+ 	rows, err := r.db.Query(ctx,
+-		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`, orderID)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/demo-app/internal/history/service.go b/demo-app/internal/history/service.go
+index b92c64e..f76a439 100644
+--- a/demo-app/internal/history/service.go
++++ b/demo-app/internal/history/service.go
+@@ -14,7 +14,7 @@ type Entry struct {
+ // Store is what the service needs from the repository.
+ type Store interface {
+ 	Orders(ctx context.Context, customerID int64) iter.Seq2[Order, error]
+-	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++	ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error)
+ }
+ 
+ // Service builds a customer's order history.
+@@ -30,24 +30,15 @@ func NewService(store Store) *Service {
+ // History returns the customer's orders, oldest first, each with its items.
+ func (s *Service) History(ctx context.Context, customerID int64) ([]Entry, error) {
+ 	var out []Entry
+-	var ids []int64
+ 	for o, err := range s.store.Orders(ctx, customerID) {
+ 		if err != nil {
+ 			return nil, err
+ 		}
+-		out = append(out, Entry{Order: o})
+-		ids = append(ids, o.ID)
+-	}
+-	items, err := s.store.ItemsByOrders(ctx, ids)
+-	if err != nil {
+-		return nil, err
+-	}
+-	byOrder := make(map[int64][]Item, len(out))
+-	for _, it := range items {
+-		byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
+-	}
+-	for i := range out {
+-		out[i].Items = byOrder[out[i].ID]
++		items, err := s.store.ItemsByOrder(ctx, o.ID) // rootline:answer
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, Entry{Order: o, Items: items})
+ 	}
+ 	return out, nil
+ }

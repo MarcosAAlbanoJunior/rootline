@@ -1,0 +1,209 @@
+diff --git a/demo-app/internal/history/handler.go b/demo-app/internal/history/handler.go
+new file mode 100644
+index 0000000..bab1079
+--- /dev/null
++++ b/demo-app/internal/history/handler.go
+@@ -0,0 +1,45 @@
++package history
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Lister is what the handler needs from the service.
++type Lister interface {
++	History(ctx context.Context, customerID int64) ([]Entry, error)
++}
++
++// Handler serves the order history HTTP endpoint.
++type Handler struct {
++	lister Lister
++}
++
++// NewHandler returns a Handler over lister.
++func NewHandler(lister Lister) *Handler {
++	return &Handler{lister: lister}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/history", h.listHistory)
++}
++
++func (h *Handler) listHistory(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.lister.History(r.Context(), id)
++	if err != nil {
++		slog.Error("list history failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/history/repository.go b/demo-app/internal/history/repository.go
+new file mode 100644
+index 0000000..548f363
+--- /dev/null
++++ b/demo-app/internal/history/repository.go
+@@ -0,0 +1,73 @@
++// Package history is the demo-app's order history: a customer's orders with their items, read
++// through an iterator.
++package history
++
++import (
++	"context"
++	"iter"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Order is one row of the orders table.
++type Order struct {
++	ID         int64     `json:"id"`
++	CustomerID int64     `json:"customer_id"`
++	PlacedAt   time.Time `json:"placed_at"`
++}
++
++// Item is one row of the order_items table.
++type Item struct {
++	ID      int64  `json:"id"`
++	OrderID int64  `json:"order_id"`
++	SKU     string `json:"sku"`
++	Qty     int    `json:"qty"`
++}
++
++// Repository reads orders and items from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// Orders runs the query of the customer's orders, oldest first, and returns an iterator over the
++// rows already read. A query error is yielded once, with a zero Order.
++func (r *Repository) Orders(ctx context.Context, customerID int64) iter.Seq2[Order, error] {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, customer_id, placed_at FROM orders WHERE customer_id = $1 ORDER BY id`, customerID)
++	var list []Order
++	if err == nil {
++		list, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
++	}
++	return func(yield func(Order, error) bool) {
++		if err != nil {
++			yield(Order{}, err)
++			return
++		}
++		for _, o := range list {
++			if !yield(o, nil) {
++				return
++			}
++		}
++	}
++}
++
++// ItemsByOrders returns the items of all given orders in a single query.
++func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Item])
++}
+diff --git a/demo-app/internal/history/service.go b/demo-app/internal/history/service.go
+new file mode 100644
+index 0000000..b92c64e
+--- /dev/null
++++ b/demo-app/internal/history/service.go
+@@ -0,0 +1,53 @@
++package history
++
++import (
++	"context"
++	"iter"
++)
++
++// Entry is an order of the history and its items.
++type Entry struct {
++	Order
++	Items []Item `json:"items"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	Orders(ctx context.Context, customerID int64) iter.Seq2[Order, error]
++	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++}
++
++// Service builds a customer's order history.
++type Service struct {
++	store Store
++}
++
++// NewService returns a Service over store.
++func NewService(store Store) *Service {
++	return &Service{store: store}
++}
++
++// History returns the customer's orders, oldest first, each with its items.
++func (s *Service) History(ctx context.Context, customerID int64) ([]Entry, error) {
++	var out []Entry
++	var ids []int64
++	for o, err := range s.store.Orders(ctx, customerID) {
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, Entry{Order: o})
++		ids = append(ids, o.ID)
++	}
++	items, err := s.store.ItemsByOrders(ctx, ids)
++	if err != nil {
++		return nil, err
++	}
++	byOrder := make(map[int64][]Item, len(out))
++	for _, it := range items {
++		byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
++	}
++	for i := range out {
++		out[i].Items = byOrder[out[i].ID]
++	}
++	return out, nil
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 215eb15..1367e26 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -24,6 +24,7 @@ import (
+ 	"go.opentelemetry.io/otel/sdk/resource"
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/history"
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+@@ -74,6 +75,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	history.NewHandler(history.NewService(history.NewRepository(pool))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),
