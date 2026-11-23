@@ -35,6 +35,14 @@ Regra determinística da fase 1 que examina um trace e emite candidatas de um ti
 - Evitar: "analisador", "heurística" (soltos).
 - No código: `Detector`
 
+## Distrator
+Código ou commit de um cenário que parece causa e não é (ex.: paginação em lotes pequenos, que
+parece N+1). Um distrator de código é declarado no `scenario.json` e marcado com
+`// rootline:distractor`. O gabarito guarda a linha dele no commit ruim. Uma candidata que casa com
+ele conta como falso positivo de detector.
+- Relacionados: [Falso positivo de detector](#falso-positivo-de-detector), [Gabarito](#gabarito), [ADR-0022](docs/adr/0022-distrator-declarado-no-cenario.md)
+- No código: `Distractor`
+
 ## Evidência
 Fato verificável com ID estável que sustenta uma candidata ou um resultado: span, query normalizada,
 contagem, trecho de código (arquivo:linha), trecho de diff, plano de execução.
@@ -54,12 +62,24 @@ quando o LLM cita um ID de evidência inexistente ou não cita nenhum. Pode vir 
 - No código: `Inconclusive`
 
 ## Falso positivo de detector
-Detector que classifica errado um distrator (ex.: paginação como N+1). Separado da alucinação.
-- No código: `DetectorFalsePositive`
+Detector que classifica errado um distrator (ex.: paginação como N+1). Separado da alucinação. Conta
+os cenários com distrator em que alguma candidata do Resultado casa com ele: arquivo:linha no nível 1,
+função no nível 2. Para esta métrica, menos é melhor, e o portão do placar reprova quando ela sobe.
+- Relacionados: [Distrator](#distrator), [ADR-0009](docs/adr/0009-pontuacao-da-avaliacao.md), [ADR-0022](docs/adr/0022-distrator-declarado-no-cenario.md)
+- No código: `DetectorFalsePositive` (`detector_false_positive` no placar)
+
+## Forma de paginação
+Ocorrência de queries repetidas que é leitura paginada, não N+1: a query tem `LIMIT`, as linhas são
+páginas cheias iguais (k ≥ 2) seguidas de uma página menor (inclusive vazia), e não há "+1". O
+detector a descarta e registra a observação `pagination_shape:`.
+- Evitar: "paginação" (solto) quando o sentido é a regra do detector.
+- Relacionados: [Detector](#detector), [Observação](#observação), [ADR-0021](docs/adr/0021-forma-de-paginacao-nao-e-n-mais-1.md)
+- No código: `paginationShape`
 
 ## Gabarito
 Resultado esperado de um cenário: causa (ou inconclusivo), localização e commit por rótulo
-(`referencia`, `regressao`, `distrator`), nunca por SHA.
+(`referencia`, `regressao`, `distrator`), nunca por SHA. Quando o cenário tem distratores de código,
+o gabarito também guarda a função, o arquivo e a linha de cada um no commit ruim.
 - Evitar: "resposta esperada", "expected" (soltos).
 - No código: `AnswerKey`
 
