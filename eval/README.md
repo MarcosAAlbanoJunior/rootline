@@ -43,8 +43,9 @@ rota nova) entra por um **patch de preparação** no commit `referencia`:
 
 - Prefira arquivos novos. Edite arquivos existentes só no mínimo (por exemplo, ligar a rota nova em
   `demo-app/main.go`), porque cada edição pode deixar de aplicar quando o demo-app mudar.
-- O patch de preparação não pode conter o marcador `rootline:answer`: nenhum commit gerado pode ter
-  esse texto.
+- O patch de preparação não pode conter o marcador `rootline:answer`. Ele pode conter o de um
+  distrator, que o gerador remove antes do commit (veja [Distratores](#distratores)). Nenhum commit
+  gerado pode ter o prefixo `rootline:`.
 - O commit seguinte aplica o patch dele por cima do de preparação.
 
 `go test ./internal/fixture/` gera todos os cenários deste diretório. Patch que deixou de aplicar falha
@@ -83,6 +84,35 @@ ali, citando o cenário, antes de chegar ao CI.
   aleatoriedade. A rota do sintoma recebe `requests × peso / soma dos pesos` requisições.
 - **`answer`**: o gabarito. A linha não é digitada: o gerador acha a linha que termina com `marker` no
   commit `commit`, remove o marcador e grava a linha.
+- **`distractors`**: opcional. Veja a seção abaixo.
+
+## Distratores
+
+Um distrator é código de um cenário que parece causa e não é, por exemplo uma paginação em lotes
+pequenos, que parece N+1 (veja [Distrator](../GLOSSARY.md#distrator) no glossário e o
+[ADR-0022](../docs/adr/0022-distrator-declarado-no-cenario.md)). Ele é declarado no `scenario.json`:
+
+```json
+"distractors": [
+  {
+    "function": "<módulo>/internal/statement.(*Service).Statement",
+    "file": "demo-app/internal/statement/service.go",
+    "marker": " // rootline:distractor"
+  }
+]
+```
+
+- **O marcador.** A linha do distrator termina com `marker`, como a do gabarito. Os dois marcadores têm
+  de ser diferentes. O gerador remove o marcador no commit em que ele aparece (em geral o `referencia`,
+  pelo patch de preparação) e anota a linha. O marcador aparece em exatamente uma linha; zero ou mais de
+  uma falha a geração. Nenhum commit pode conter o prefixo `rootline:`: os modos com LLM leem o código.
+- **Qual linha marcar.** A mesma convenção do gabarito: a linha que a localização de nível 1 aponta
+  para aquela query, ou seja, a chamada dentro do loop.
+- **A linha no commit ruim.** Até o commit ruim do sintoma (`symptom.bad`), o gerador segue a linha com
+  `git blame`. O `answer_key.json` (e o manifesto da gravação) ganha `distractors: [{function, file,
+  line}]` com a linha no commit ruim. Linhas inseridas antes dela pela regressão são acompanhadas.
+- **Um commit posterior não pode editar a linha do distrator.** Se editar, a geração falha: o distrator
+  deixou de ser código pré-existente. Os patches seguintes são escritos sobre o código já sem marcador.
 
 ## Gerar, gravar e pontuar todos os cenários
 

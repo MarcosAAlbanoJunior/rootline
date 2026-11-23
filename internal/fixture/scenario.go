@@ -29,6 +29,15 @@ type ScenarioAnswer struct {
 	Commit   string `json:"commit"`
 }
 
+// ScenarioDistractor is a distractor as written in scenario.json: code that looks like a cause and
+// is not. Marker ends the line the level-1 location points to for that code (the call inside the
+// loop); the generator removes it and computes the line (ADR-0022).
+type ScenarioDistractor struct {
+	Function string `json:"function"`
+	File     string `json:"file"`
+	Marker   string `json:"marker"`
+}
+
 // Symptom says how the evaluation frames the regression: which service and route to analyze and
 // which commit labels are the bad version and the baseline (empty baseline = no reference). Route
 // is the analyzed route pattern; it cannot come from the load, which may send several routes.
@@ -71,6 +80,8 @@ type Scenario struct {
 	Answer     ScenarioAnswer   `json:"answer"`
 	Symptom    Symptom          `json:"symptom"`
 	Load       Load             `json:"load"`
+	// Distractors is optional; a scenario without the block has none.
+	Distractors []ScenarioDistractor `json:"distractors,omitempty"`
 }
 
 // LoadScenario reads <dir>/scenario.json.
@@ -103,7 +114,28 @@ func LoadScenario(dir string) (Scenario, error) {
 	if err := sc.validateSymptom(); err != nil {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
 	}
+	if err := sc.validateDistractors(); err != nil {
+		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
+	}
 	return sc, nil
+}
+
+// validateDistractors requires every field, and a marker other than the answer's: the generator
+// removes each marker on its own.
+func (sc Scenario) validateDistractors() error {
+	for i, d := range sc.Distractors {
+		switch {
+		case d.Function == "":
+			return fmt.Errorf("distractors[%d].function is empty", i)
+		case d.File == "":
+			return fmt.Errorf("distractors[%d].file is empty", i)
+		case d.Marker == "":
+			return fmt.Errorf("distractors[%d].marker is empty", i)
+		case d.Marker == sc.Answer.Marker:
+			return fmt.Errorf("distractors[%d].marker %q is the marker of the answer", i, d.Marker)
+		}
+	}
+	return nil
 }
 
 func (l Load) validate() error {
