@@ -80,11 +80,11 @@ jobs:
           GOWORK: "off"
         run: go build ./...
 
-  # Desvio temporário do ADR-0008: grava o cenário com Docker no runner até o cache de gravações existir (issue #5).
+  # Desvio temporário do ADR-0008: grava todos os cenários com Docker no runner, em série, até o cache de gravações existir (issue #5).
   placar:
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,10 +96,14 @@ jobs:
         run: go build -o "$RUNNER_TEMP/rootline-eval" ./cmd/rootline-eval
       - name: record
         run: |
-          "$RUNNER_TEMP/rootline-eval" record \
-            --scenario eval/fixtures/scenarios/n1-basic \
-            --source . \
-            --out "$RUNNER_TEMP/recordings"
+          set -euo pipefail
+          for dir in eval/fixtures/scenarios/*/; do
+            name="$(basename "$dir")"
+            "$RUNNER_TEMP/rootline-eval" record \
+              --scenario "$dir" \
+              --source . \
+              --out "$RUNNER_TEMP/recordings/$name"
+          done
       - name: score
         run: |
           "$RUNNER_TEMP/rootline-eval" score \
