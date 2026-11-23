@@ -21,7 +21,7 @@ func manifestWith(sym fixture.Symptom) recording.Manifest {
 			{Label: "boa", SHA: "sha-boa"},
 			{Label: "ruim", SHA: "sha-ruim"},
 		},
-		Load:    recording.LoadConfig{Route: "/load/{id}"},
+		Load:    recording.LoadConfig{Requests: 1, Rate: 1, Routes: []recording.LoadRoute{{Route: "/load/{id}", Weight: 1}}},
 		Symptom: sym,
 	}
 }

@@ -46,8 +46,11 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 	if opts.AppPort == 0 {
 		opts.AppPort = DefaultAppPort
 	}
-	if opts.Load == (LoadConfig{}) {
+	if opts.Load.Requests == 0 && opts.Load.Rate == 0 && len(opts.Load.Routes) == 0 {
 		opts.Load = DefaultLoad()
+	}
+	if _, err := opts.Load.cycle(); err != nil {
+		return err // before generating or starting anything
 	}
 	if _, lookErr := exec.LookPath("docker"); lookErr != nil {
 		return errors.New("recording: docker is required to record a scenario")

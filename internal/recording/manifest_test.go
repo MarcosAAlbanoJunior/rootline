@@ -1,6 +1,7 @@
 package recording_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,7 +25,7 @@ func sampleManifest() recording.Manifest {
 			CommitLabel: "regressao", Line: 42,
 		},
 		Seed: recording.SeedID,
-		Load: recording.LoadConfig{Requests: 200, Rate: 50, Route: "/customers/{id}/orders"},
+		Load: recording.LoadConfig{Requests: 200, Rate: 50, Routes: []recording.LoadRoute{{Route: "/customers/{id}/orders", Weight: 1}}},
 	}
 }
 
@@ -63,5 +64,34 @@ func TestManifest_Contents(t *testing.T) {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("manifest.json lacks %q:\n%s", want, raw)
 		}
+	}
+}
+
+func TestManifest_LoadIsWrittenWithItsRoutesAndWeights(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	m := sampleManifest()
+	m.Load = recording.LoadConfig{Requests: 8, Rate: 4, Routes: []recording.LoadRoute{{Route: "/a/{id}", Weight: 3}, {Route: "/b", Weight: 1}}}
+	if err := recording.WriteManifest(path, m); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Load map[string]any `json:"load"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"requests": 8.0, "rate_per_second": 4.0,
+		"routes": []any{
+			map[string]any{"route": "/a/{id}", "weight": 3.0},
+			map[string]any{"route": "/b", "weight": 1.0},
+		},
+	}
+	if !reflect.DeepEqual(doc.Load, want) {
+		t.Fatalf("load = %v, want %v", doc.Load, want)
 	}
 }
