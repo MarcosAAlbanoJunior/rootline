@@ -11,44 +11,60 @@ import (
 )
 
 func scenarioJSON(symptom string) string {
-	return `{"name":"n","commits":[{"label":"referencia"},{"label":"regressao","patch":"r.patch"}],
+	return scenarioJSONWithAssumption(`"breaks something"`, symptom)
+}
+
+// scenarioJSONWithAssumption takes the raw JSON value of "assumption"; empty omits the field.
+func scenarioJSONWithAssumption(assumption, symptom string) string {
+	field := ""
+	if assumption != "" {
+		field = `"assumption":` + assumption + `,`
+	}
+	return `{"name":"n",` + field + `"commits":[{"label":"referencia"},{"label":"regressao","patch":"r.patch"}],
 "answer":{"cause":"n_plus_one","function":"f","file":"a.go","marker":"// m","commit":"regressao"},
 "symptom":` + symptom + `}`
 }
 
-func loadScenarioWith(t *testing.T, symptom string) (fixture.Scenario, error) {
+func loadScenarioJSON(t *testing.T, body string) (fixture.Scenario, error) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "scenario.json"), []byte(scenarioJSON(symptom)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "scenario.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return fixture.LoadScenario(dir)
 }
 
+func loadScenarioWith(t *testing.T, symptom string) (fixture.Scenario, error) {
+	t.Helper()
+	return loadScenarioJSON(t, scenarioJSON(symptom))
+}
+
 func TestLoadScenario_SymptomBlockIsLoaded(t *testing.T) {
-	sc, err := loadScenarioWith(t, `{"service":"demo-app","method":"GET","route_source":"span_name","bad":"regressao","baseline":"referencia"}`)
+	sc, err := loadScenarioWith(t, `{"service":"demo-app","method":"GET","route":"/customers/{id}/orders","route_source":"span_name","bad":"regressao","baseline":"referencia"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fixture.Symptom{Service: "demo-app", Method: "GET", RouteSource: "span_name", Bad: "regressao", Baseline: "referencia"}
+	want := fixture.Symptom{Service: "demo-app", Method: "GET", Route: "/customers/{id}/orders", RouteSource: "span_name", Bad: "regressao", Baseline: "referencia"}
 	if sc.Symptom != want {
 		t.Fatalf("Symptom = %+v, want %+v", sc.Symptom, want)
 	}
 }
 
 func TestLoadScenario_EmptyBaselineIsAllowed(t *testing.T) {
-	if _, err := loadScenarioWith(t, `{"service":"s","method":"GET","bad":"regressao"}`); err != nil {
+	if _, err := loadScenarioWith(t, `{"service":"s","method":"GET","route":"/x","bad":"regressao"}`); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestLoadScenario_InvalidSymptomNamesTheField(t *testing.T) {
 	cases := []struct{ name, symptom, field string }{
-		{"empty service", `{"method":"GET","bad":"regressao"}`, "service"},
-		{"empty method", `{"service":"s","bad":"regressao"}`, "method"},
-		{"empty bad", `{"service":"s","method":"GET"}`, "bad"},
-		{"bad is not a commit label", `{"service":"s","method":"GET","bad":"nope"}`, "bad"},
-		{"baseline is not a commit label", `{"service":"s","method":"GET","bad":"regressao","baseline":"nope"}`, "baseline"},
+		{"empty service", `{"method":"GET","route":"/x","bad":"regressao"}`, "service"},
+		{"empty method", `{"service":"s","route":"/x","bad":"regressao"}`, "method"},
+		{"empty route", `{"service":"s","method":"GET","bad":"regressao"}`, "symptom.route"},
+		{"blank route", `{"service":"s","method":"GET","route":"  ","bad":"regressao"}`, "symptom.route"},
+		{"empty bad", `{"service":"s","method":"GET","route":"/x"}`, "bad"},
+		{"bad is not a commit label", `{"service":"s","method":"GET","route":"/x","bad":"nope"}`, "bad"},
+		{"baseline is not a commit label", `{"service":"s","method":"GET","route":"/x","bad":"regressao","baseline":"nope"}`, "baseline"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -76,8 +92,40 @@ func TestLoadScenario_N1BasicDeclaresTheSymptom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fixture.Symptom{Service: "demo-app", Method: "GET", RouteSource: "span_name", Bad: "regressao", Baseline: "referencia"}
+	want := fixture.Symptom{Service: "demo-app", Method: "GET", Route: "/customers/{id}/orders", RouteSource: "span_name", Bad: "regressao", Baseline: "referencia"}
 	if sc.Symptom != want {
 		t.Fatalf("Symptom = %+v, want %+v", sc.Symptom, want)
+	}
+}
+
+func TestLoadScenario_MissingOrBlankAssumptionIsAnErrorCitingAssumption(t *testing.T) {
+	symptom := `{"service":"s","method":"GET","route":"/x","bad":"regressao"}`
+	for name, assumption := range map[string]string{"missing": "", "empty": `""`, "blank": `"  \t "`} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadScenarioJSON(t, scenarioJSONWithAssumption(assumption, symptom))
+			if err == nil || !strings.Contains(err.Error(), "assumption") {
+				t.Fatalf("err = %v, want an error citing %q", err, "assumption")
+			}
+		})
+	}
+}
+
+func TestLoadScenario_AssumptionIsLoaded(t *testing.T) {
+	sc, err := loadScenarioJSON(t, scenarioJSONWithAssumption(`"loop two frames up"`, `{"service":"s","method":"GET","route":"/x","bad":"regressao"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Assumption != "loop two frames up" {
+		t.Fatalf("Assumption = %q", sc.Assumption)
+	}
+}
+
+func TestLoadScenario_N1BasicDeclaresTheAssumption(t *testing.T) {
+	sc, err := fixture.LoadScenario(filepath.Join("..", "..", "eval", "fixtures", "scenarios", "n1-basic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "caso básico: loop no service, query no repository"; sc.Assumption != want {
+		t.Fatalf("Assumption = %q, want %q", sc.Assumption, want)
 	}
 }

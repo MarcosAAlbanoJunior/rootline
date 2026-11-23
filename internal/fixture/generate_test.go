@@ -70,7 +70,8 @@ func setup(t *testing.T) (source, scenario string) {
 	write(t, filepath.Join(source, "NOT-COPIED.md"), "x")
 	write(t, filepath.Join(scenario, "regressao.patch"), patch())
 	sc := map[string]any{
-		"name": "n1-basic",
+		"name":       "n1-basic",
+		"assumption": "loop in the service, query in the repository",
 		"commits": []map[string]string{
 			{"label": "referencia"},
 			{"label": "regressao", "patch": "regressao.patch"},
@@ -80,7 +81,7 @@ func setup(t *testing.T) (source, scenario string) {
 			"file": serviceFile, "marker": marker, "commit": "regressao",
 		},
 		"symptom": map[string]string{
-			"service": "demo-app", "method": "GET", "route_source": "span_name",
+			"service": "demo-app", "method": "GET", "route": "/customers/{id}/orders", "route_source": "span_name",
 			"bad": "regressao", "baseline": "referencia",
 		},
 	}

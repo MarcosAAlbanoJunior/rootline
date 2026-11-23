@@ -251,13 +251,17 @@ func scoreManifest(rec string, m recording.Manifest, analyze analyzer) (evaluati
 	return evaluation.ScoreOne(key, found, labelOf), nil
 }
 
-// symptomFromManifest builds the analysis Symptom only from the manifest: service, method and
-// route source from its symptom block, route from the load, versions from the SHAs of the bad and
-// baseline labels. A manifest without the block (older recording) is an error, never a default.
+// symptomFromManifest builds the analysis Symptom only from the manifest: service, method, route
+// and route source from its symptom block, versions from the SHAs of the bad and baseline labels.
+// A manifest without the block or without symptom.route (older recording) is an error, never a
+// default: the load may send several routes, so it cannot say which one is analyzed.
 func symptomFromManifest(m recording.Manifest) (analysis.Symptom, error) {
 	sy := m.Symptom
 	if sy == (fixture.Symptom{}) {
 		return analysis.Symptom{}, fmt.Errorf("manifest has no symptom block (recorded before it existed); record again")
+	}
+	if sy.Route == "" {
+		return analysis.Symptom{}, fmt.Errorf("manifest has no symptom.route (recorded before it existed); record again")
 	}
 	shaOf := map[string]string{}
 	for _, c := range m.Commits {
@@ -275,7 +279,7 @@ func symptomFromManifest(m recording.Manifest) (analysis.Symptom, error) {
 	}
 	return analysis.Symptom{
 		Service:         sy.Service,
-		Operation:       trace.Operation{Method: sy.Method, Route: m.Load.Route, RouteSource: sy.RouteSource},
+		Operation:       trace.Operation{Method: sy.Method, Route: sy.Route, RouteSource: sy.RouteSource},
 		BadVersion:      bad,
 		BaselineVersion: baseline,
 	}, nil

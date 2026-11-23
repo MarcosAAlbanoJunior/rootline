@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ScenarioCommit is one commit of a scenario. The first commit has no patch; the others apply
@@ -27,21 +28,25 @@ type ScenarioAnswer struct {
 }
 
 // Symptom says how the evaluation frames the regression: which service and route to analyze and
-// which commit labels are the bad version and the baseline (empty baseline = no reference).
+// which commit labels are the bad version and the baseline (empty baseline = no reference). Route
+// is the analyzed route pattern; it cannot come from the load, which may send several routes.
 type Symptom struct {
 	Service     string `json:"service"`
 	Method      string `json:"method"`
+	Route       string `json:"route"`
 	RouteSource string `json:"route_source"`
 	Bad         string `json:"bad"`
 	Baseline    string `json:"baseline"`
 }
 
-// Scenario is the content of scenario.json.
+// Scenario is the content of scenario.json. Assumption is the detector or location assumption the
+// scenario breaks; a scenario that breaks none only inflates the scoreboard, so it is required.
 type Scenario struct {
-	Name    string           `json:"name"`
-	Commits []ScenarioCommit `json:"commits"`
-	Answer  ScenarioAnswer   `json:"answer"`
-	Symptom Symptom          `json:"symptom"`
+	Name       string           `json:"name"`
+	Assumption string           `json:"assumption"`
+	Commits    []ScenarioCommit `json:"commits"`
+	Answer     ScenarioAnswer   `json:"answer"`
+	Symptom    Symptom          `json:"symptom"`
 }
 
 // LoadScenario reads <dir>/scenario.json.
@@ -57,6 +62,9 @@ func LoadScenario(dir string) (Scenario, error) {
 	if sc.Name == "" || len(sc.Commits) == 0 || sc.Answer.Marker == "" || sc.Answer.File == "" {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s is incomplete", dir)
 	}
+	if strings.TrimSpace(sc.Assumption) == "" {
+		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: assumption is empty (declare which assumption the scenario breaks)", dir)
+	}
 	if err := sc.validateSymptom(); err != nil {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
 	}
@@ -70,6 +78,8 @@ func (sc Scenario) validateSymptom() error {
 		return fmt.Errorf("symptom.service is empty")
 	case sy.Method == "":
 		return fmt.Errorf("symptom.method is empty")
+	case strings.TrimSpace(sy.Route) == "":
+		return fmt.Errorf("symptom.route is empty")
 	case sy.Bad == "":
 		return fmt.Errorf("symptom.bad is empty")
 	}
