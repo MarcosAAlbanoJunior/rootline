@@ -1,0 +1,24 @@
+{
+  "name": "n1-pagination",
+  "assumption": "repetição de query em loop nem sempre é N+1: a mesma rota tem uma leitura paginada em lotes pequenos (keyset, LIMIT 4, 8 queries por requisição), que passa nos limiares do N+1, e só a regressão (itens por pedido, dentro de um for range) é N+1",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/statement.(*Service).Statement",
+    "file": "demo-app/internal/statement/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "distractors": [
+    {
+      "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/statement.(*Service).Statement",
+      "file": "demo-app/internal/statement/service.go",
+      "marker": " // rootline:distractor"
+    }
+  ],
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/statement", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/statement", "weight": 1}]}
+}

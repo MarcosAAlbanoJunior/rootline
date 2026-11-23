@@ -1,0 +1,170 @@
+diff --git a/demo-app/internal/statement/handler.go b/demo-app/internal/statement/handler.go
+new file mode 100644
+index 0000000..2af24fd
+--- /dev/null
++++ b/demo-app/internal/statement/handler.go
+@@ -0,0 +1,45 @@
++package statement
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Builder is what the handler needs from the service.
++type Builder interface {
++	Statement(ctx context.Context, customerID int64) (Statement, error)
++}
++
++// Handler serves the statement HTTP endpoint.
++type Handler struct {
++	builder Builder
++}
++
++// NewHandler returns a Handler over builder.
++func NewHandler(builder Builder) *Handler {
++	return &Handler{builder: builder}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/statement", h.statement)
++}
++
++func (h *Handler) statement(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.builder.Statement(r.Context(), id)
++	if err != nil {
++		slog.Error("statement failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/statement/repository.go b/demo-app/internal/statement/repository.go
+new file mode 100644
+index 0000000..23d19ca
+--- /dev/null
++++ b/demo-app/internal/statement/repository.go
+@@ -0,0 +1,43 @@
++// Package statement is the demo-app's customer statement: every item the customer bought.
++package statement
++
++import (
++	"context"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Item is one row of the order_items table.
++type Item struct {
++	ID      int64  `json:"id"`
++	OrderID int64  `json:"order_id"`
++	SKU     string `json:"sku"`
++	Qty     int    `json:"qty"`
++}
++
++// Repository reads a customer's items from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// ItemsPage returns up to pageSize items of the customer with an id greater than afterID, by id.
++// The LIMIT must match pageSize.
++func (r *Repository) ItemsPage(ctx context.Context, customerID, afterID int64) ([]Item, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT oi.id, oi.order_id, oi.sku, oi.qty FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.customer_id = $1 AND oi.id > $2 ORDER BY oi.id LIMIT 4`,
++		customerID, afterID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Item])
++}
+diff --git a/demo-app/internal/statement/service.go b/demo-app/internal/statement/service.go
+new file mode 100644
+index 0000000..946d9ee
+--- /dev/null
++++ b/demo-app/internal/statement/service.go
+@@ -0,0 +1,44 @@
++package statement
++
++import "context"
++
++// pageSize is the number of items per page of the keyset read.
++const pageSize = 4
++
++// Statement is every item a customer bought.
++type Statement struct {
++	Items []Item `json:"items"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	ItemsPage(ctx context.Context, customerID, afterID int64) ([]Item, error)
++}
++
++// Service builds a customer's statement.
++type Service struct {
++	store Store
++}
++
++// NewService returns a Service over store.
++func NewService(store Store) *Service {
++	return &Service{store: store}
++}
++
++// Statement reads every item of the customer in pages, by keyset.
++func (s *Service) Statement(ctx context.Context, customerID int64) (Statement, error) {
++	var st Statement
++	var after int64
++	for {
++		page, err := s.store.ItemsPage(ctx, customerID, after) // rootline:distractor
++		if err != nil {
++			return Statement{}, err
++		}
++		st.Items = append(st.Items, page...)
++		if len(page) < pageSize {
++			break
++		}
++		after = page[len(page)-1].ID
++	}
++	return st, nil
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 215eb15..8614cf7 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -25,6 +25,7 @@ import (
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/statement"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+ 
+@@ -74,6 +75,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	statement.NewHandler(statement.NewService(statement.NewRepository(pool))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),

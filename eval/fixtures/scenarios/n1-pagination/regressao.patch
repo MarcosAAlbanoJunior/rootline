@@ -1,0 +1,91 @@
+diff --git a/demo-app/internal/statement/repository.go b/demo-app/internal/statement/repository.go
+index 23d19ca..c76dc55 100644
+--- a/demo-app/internal/statement/repository.go
++++ b/demo-app/internal/statement/repository.go
+@@ -30,6 +30,30 @@ func NewRepository(db Querier) *Repository {
+ 	return &Repository{db: db}
+ }
+ 
++// Order is one row of the orders table.
++type Order struct {
++	ID int64
++}
++
++// OrdersByCustomer returns the ids of the customer's orders, oldest first.
++func (r *Repository) OrdersByCustomer(ctx context.Context, customerID int64) ([]Order, error) {
++	rows, err := r.db.Query(ctx, `SELECT id FROM orders WHERE customer_id = $1 ORDER BY id`, customerID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
++}
++
++// ItemsByOrder returns the items of one order.
++func (r *Repository) ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`, orderID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Item])
++}
++
+ // ItemsPage returns up to pageSize items of the customer with an id greater than afterID, by id.
+ // The LIMIT must match pageSize.
+ func (r *Repository) ItemsPage(ctx context.Context, customerID, afterID int64) ([]Item, error) {
+diff --git a/demo-app/internal/statement/service.go b/demo-app/internal/statement/service.go
+index d81c1a0..c30b44d 100644
+--- a/demo-app/internal/statement/service.go
++++ b/demo-app/internal/statement/service.go
+@@ -5,14 +5,23 @@ import "context"
+ // pageSize is the number of items per page of the keyset read.
+ const pageSize = 4
+ 
+-// Statement is every item a customer bought.
++// Statement is every item a customer bought, with a summary per order.
+ type Statement struct {
+-	Items []Item `json:"items"`
++	Items  []Item         `json:"items"`
++	Orders []OrderSummary `json:"orders"`
++}
++
++// OrderSummary is the number of items of one order.
++type OrderSummary struct {
++	OrderID int64 `json:"order_id"`
++	Items   int   `json:"items"`
+ }
+ 
+ // Store is what the service needs from the repository.
+ type Store interface {
+ 	ItemsPage(ctx context.Context, customerID, afterID int64) ([]Item, error)
++	OrdersByCustomer(ctx context.Context, customerID int64) ([]Order, error)
++	ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error)
+ }
+ 
+ // Service builds a customer's statement.
+@@ -25,7 +34,7 @@ func NewService(store Store) *Service {
+ 	return &Service{store: store}
+ }
+ 
+-// Statement reads every item of the customer in pages, by keyset.
++// Statement reads every item of the customer in pages, by keyset, and summarizes each order.
+ func (s *Service) Statement(ctx context.Context, customerID int64) (Statement, error) {
+ 	var st Statement
+ 	var after int64
+@@ -40,5 +49,16 @@ func (s *Service) Statement(ctx context.Context, customerID int64) (Statement, e
+ 		}
+ 		after = page[len(page)-1].ID
+ 	}
++	orders, err := s.store.OrdersByCustomer(ctx, customerID)
++	if err != nil {
++		return Statement{}, err
++	}
++	for _, o := range orders {
++		items, err := s.store.ItemsByOrder(ctx, o.ID) // rootline:answer
++		if err != nil {
++			return Statement{}, err
++		}
++		st.Orders = append(st.Orders, OrderSummary{OrderID: o.ID, Items: len(items)})
++	}
+ 	return st, nil
+ }
