@@ -56,6 +56,8 @@ func TestLoadScenario_RepositoryScenariosDeclareTheirSymptomLoadAndAnswer(t *tes
 		{"n1-helper", "/customers/{id}/receipts", demoModule + "/internal/receipts.(*Service).Receipts", "demo-app/internal/receipts/service.go"},
 		// The declared function, without the -rangeN suffix of the range-over-func body (ADR-0016).
 		{"n1-rangefunc", "/customers/{id}/history", demoModule + "/internal/history.(*Service).History", "demo-app/internal/history/service.go"},
+		// The declared function, without the .funcN of the closure launched in the loop (ADR-0019).
+		{"n1-errgroup", "/customers/{id}/summary", demoModule + "/internal/summary.(*Service).Summary", "demo-app/internal/summary/service.go"},
 	}
 	for _, c := range cases {
 		t.Run(c.dir, func(t *testing.T) {

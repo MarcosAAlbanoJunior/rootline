@@ -1,0 +1,252 @@
+diff --git a/demo-app/go.mod b/demo-app/go.mod
+index ccef81d..c0e9f27 100644
+--- a/demo-app/go.mod
++++ b/demo-app/go.mod
+@@ -12,6 +12,7 @@ require (
+ 	go.opentelemetry.io/otel v1.47.0
+ 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
+ 	go.opentelemetry.io/otel/sdk v1.47.0
++	golang.org/x/sync v0.23.0
+ )
+ 
+ require (
+@@ -32,7 +33,6 @@ require (
+ 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
+ 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
+ 	golang.org/x/net v0.59.0 // indirect
+-	golang.org/x/sync v0.23.0 // indirect
+ 	golang.org/x/sys v0.48.0 // indirect
+ 	golang.org/x/text v0.42.0 // indirect
+ 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
+diff --git a/demo-app/internal/summary/handler.go b/demo-app/internal/summary/handler.go
+new file mode 100644
+index 0000000..9b991e3
+--- /dev/null
++++ b/demo-app/internal/summary/handler.go
+@@ -0,0 +1,45 @@
++package summary
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Summarizer is what the handler needs from the service.
++type Summarizer interface {
++	Summary(ctx context.Context, customerID int64) (Summary, error)
++}
++
++// Handler serves the customer summary HTTP endpoint.
++type Handler struct {
++	summarizer Summarizer
++}
++
++// NewHandler returns a Handler over summarizer.
++func NewHandler(summarizer Summarizer) *Handler {
++	return &Handler{summarizer: summarizer}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/summary", h.getSummary)
++}
++
++func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.summarizer.Summary(r.Context(), id)
++	if err != nil {
++		slog.Error("customer summary failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/summary/repository.go b/demo-app/internal/summary/repository.go
+new file mode 100644
+index 0000000..7fc56e3
+--- /dev/null
++++ b/demo-app/internal/summary/repository.go
+@@ -0,0 +1,70 @@
++// Package summary is the demo-app's customer summary: the customer's orders with their items and the
++// total quantity ordered, read in parallel.
++package summary
++
++import (
++	"context"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
++}
++
++// Order is one row of the orders table.
++type Order struct {
++	ID         int64     `json:"id"`
++	CustomerID int64     `json:"customer_id"`
++	PlacedAt   time.Time `json:"placed_at"`
++}
++
++// Item is one row of the order_items table.
++type Item struct {
++	ID      int64  `json:"id"`
++	OrderID int64  `json:"order_id"`
++	SKU     string `json:"sku"`
++	Qty     int    `json:"qty"`
++}
++
++// Repository reads orders and items from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// Orders returns the customer's orders, oldest first.
++func (r *Repository) Orders(ctx context.Context, customerID int64) ([]Order, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, customer_id, placed_at FROM orders WHERE customer_id = $1 ORDER BY id`, customerID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
++}
++
++// ItemsByOrders returns the items of all given orders in a single query.
++func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++	rows, err := r.db.Query(ctx,
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Item])
++}
++
++// TotalQty returns the quantity of all items the customer ever ordered.
++func (r *Repository) TotalQty(ctx context.Context, customerID int64) (int64, error) {
++	var total int64
++	err := r.db.QueryRow(ctx,
++		`SELECT COALESCE(SUM(i.qty), 0) FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.customer_id = $1`,
++		customerID).Scan(&total)
++	return total, err
++}
+diff --git a/demo-app/internal/summary/service.go b/demo-app/internal/summary/service.go
+new file mode 100644
+index 0000000..7a26f30
+--- /dev/null
++++ b/demo-app/internal/summary/service.go
+@@ -0,0 +1,79 @@
++package summary
++
++import (
++	"context"
++	"sync"
++
++	"golang.org/x/sync/errgroup"
++)
++
++// Entry is an order and its items.
++type Entry struct {
++	Order
++	Items []Item `json:"items"`
++}
++
++// Summary is the customer's orders with their items and the total quantity ordered.
++type Summary struct {
++	Orders   []Entry `json:"orders"`
++	TotalQty int64   `json:"total_qty"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	Orders(ctx context.Context, customerID int64) ([]Order, error)
++	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++	TotalQty(ctx context.Context, customerID int64) (int64, error)
++}
++
++// Service builds a customer's summary.
++type Service struct {
++	store Store
++}
++
++// NewService returns a Service over store.
++func NewService(store Store) *Service {
++	return &Service{store: store}
++}
++
++// Summary reads the customer's orders and then, in parallel, their items and the total quantity.
++func (s *Service) Summary(ctx context.Context, customerID int64) (Summary, error) {
++	orders, err := s.store.Orders(ctx, customerID)
++	if err != nil {
++		return Summary{}, err
++	}
++	g, gctx := errgroup.WithContext(ctx)
++	g.SetLimit(4)
++	var mu sync.Mutex
++	byOrder := make(map[int64][]Item, len(orders))
++	g.Go(func() error {
++		ids := make([]int64, 0, len(orders))
++		for _, o := range orders {
++			ids = append(ids, o.ID)
++		}
++		items, err := s.store.ItemsByOrders(gctx, ids)
++		if err != nil {
++			return err
++		}
++		mu.Lock()
++		defer mu.Unlock()
++		for _, it := range items {
++			byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
++		}
++		return nil
++	})
++	var total int64
++	g.Go(func() error {
++		var err error
++		total, err = s.store.TotalQty(gctx, customerID)
++		return err
++	})
++	if err := g.Wait(); err != nil {
++		return Summary{}, err
++	}
++	out := Summary{Orders: make([]Entry, 0, len(orders)), TotalQty: total}
++	for _, o := range orders {
++		out.Orders = append(out.Orders, Entry{Order: o, Items: byOrder[o.ID]})
++	}
++	return out, nil
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 215eb15..af036fe 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -25,6 +25,7 @@ import (
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/summary"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+ 
+@@ -74,6 +75,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	summary.NewHandler(summary.NewService(summary.NewRepository(pool))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),

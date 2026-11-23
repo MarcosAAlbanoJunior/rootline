@@ -1,0 +1,17 @@
+{
+  "name": "n1-errgroup",
+  "assumption": "o frame da função que contém o loop não está na pilha da query: cada query roda numa goroutine lançada no loop com errgroup, e a pilha começa na closure (Summary.func1), cuja linha fica dentro do loop que a lança",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/summary.(*Service).Summary",
+    "file": "demo-app/internal/summary/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/summary", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/summary", "weight": 1}]}
+}
