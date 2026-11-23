@@ -1,7 +1,7 @@
 ---
 id: ADR-0016
 title: Reportar a função declarada no lugar do corpo sintético de range-over-func
-status: Aceito
+status: Substituído por ADR-0019
 date: 2026-11-22
 summary: O detector remove o sufixo -rangeN do nome do frame ao montar Location.Function, com a mesma regra do goindex, porque o nome sintético não existe no código. File e Line continuam os do frame.
 modules: [detector, goindex, eval]
