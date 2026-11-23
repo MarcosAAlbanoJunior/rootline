@@ -23,15 +23,21 @@ const (
 	attrPhase        = "rootline.db.phase"
 	attrAppStack     = "rootline.app_stack"
 	attrModulePath   = "rootline.module.path"
+	attrDBSystemName = "db.system.name"
+	attrDBSystem     = "db.system"
 )
 
-// Occurrence is one N+1 occurrence inside a single trace.
+// Occurrence is one N+1 occurrence inside a single trace. ParentSpanID is the effective parent;
+// when it came from collapsing repeated wrappers, CollapsedParentName and CollapsedParentCount say
+// which and how many (ADR-0020).
 type Occurrence struct {
 	TraceID, ParentSpanID, Query string // Query is normalized
 	Spans                        []trace.Span
 	PlusOne                      bool
 	PhaseInferred                bool
 	RowsMedian                   int
+	CollapsedParentName          string
+	CollapsedParentCount         int
 }
 
 // Env is the port consumed by location. It is implemented by adapters (and fakes in tests).
@@ -74,7 +80,11 @@ type Candidate struct {
 	PhaseInferred       bool
 	SampleTraceID       string
 	SampleParentSpanID  string
-	Warnings            []string // location problems (unresolved path, index failure), deduplicated
+	// CollapsedParentName and CollapsedParentCount come from the sample occurrence: the repeated
+	// wrapper skipped to reach the effective parent, if any. They do not change Score or Confidence.
+	CollapsedParentName  string
+	CollapsedParentCount int
+	Warnings             []string // location problems (unresolved path, index failure), deduplicated
 }
 
 type candKey struct {
@@ -134,12 +144,14 @@ func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, error) {
 func buildCandidate(a *candAgg, affected, total int) Candidate {
 	sample := a.occs[0]
 	c := Candidate{
-		Query:              a.key.query,
-		LocationReason:     a.reason,
-		TracesAffected:     affected,
-		TracesTotal:        total,
-		SampleTraceID:      sample.TraceID,
-		SampleParentSpanID: sample.ParentSpanID,
+		Query:                a.key.query,
+		LocationReason:       a.reason,
+		TracesAffected:       affected,
+		TracesTotal:          total,
+		SampleTraceID:        sample.TraceID,
+		SampleParentSpanID:   sample.ParentSpanID,
+		CollapsedParentName:  sample.CollapsedParentName,
+		CollapsedParentCount: sample.CollapsedParentCount,
 	}
 	if a.key.has {
 		loc := a.key.loc

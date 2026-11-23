@@ -91,7 +91,8 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 			PlusOneMatchedRatio: sc.c.PlusOneMatchedRatio,
 			TracesAffected:      sc.c.TracesAffected, TracesTotal: sc.c.TracesTotal,
 			PhaseInferred: sc.c.PhaseInferred, SampleTraceID: sc.c.SampleTraceID,
-			SampleParentSpanID: sc.c.SampleParentSpanID,
+			SampleParentSpanID:  sc.c.SampleParentSpanID,
+			CollapsedParentName: sc.c.CollapsedParentName, CollapsedParentCount: sc.c.CollapsedParentCount,
 		}
 		res.Evidence = append(res.Evidence, rq)
 		cand.Evidence = append(cand.Evidence, rq.ID)
