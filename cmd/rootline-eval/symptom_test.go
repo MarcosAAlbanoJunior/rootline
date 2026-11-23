@@ -62,13 +62,13 @@ func TestSymptomFromManifest_RouteComesFromTheSymptomNotFromTheLoad(t *testing.T
 }
 
 // A recording made before the symptom had a route has no default: the error says to record again.
-func TestScoreOne_ManifestWithoutSymptomRouteIsAnErrorCitingTheFieldPathAndRecordAgain(t *testing.T) {
+func TestScoreRecordings_ManifestWithoutSymptomRouteIsAnErrorCitingTheFieldPathAndRecordAgain(t *testing.T) {
 	rec := t.TempDir()
 	m := manifestWith(fixture.Symptom{Service: "svc-x", Method: "GET", RouteSource: "span_name", Bad: "ruim"})
 	if err := recording.WriteManifest(filepath.Join(rec, "manifest.json"), m); err != nil {
 		t.Fatal(err)
 	}
-	_, err := scoreOne(rec)
+	_, err := scoreRecordings(rec)
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -79,13 +79,13 @@ func TestScoreOne_ManifestWithoutSymptomRouteIsAnErrorCitingTheFieldPathAndRecor
 	}
 }
 
-func TestScoreOne_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing.T) {
+func TestScoreRecordings_ManifestWithoutSymptomIsAnErrorCitingSymptomAndPath(t *testing.T) {
 	rec := t.TempDir()
 	m := manifestWith(fixture.Symptom{})
 	if err := recording.WriteManifest(filepath.Join(rec, "manifest.json"), m); err != nil {
 		t.Fatal(err)
 	}
-	_, err := scoreOne(rec)
+	_, err := scoreRecordings(rec)
 	if err == nil || !strings.Contains(err.Error(), "symptom") || !strings.Contains(err.Error(), rec) {
 		t.Fatalf("err = %v, want an error citing %q and %q", err, "symptom", rec)
 	}
