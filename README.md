@@ -66,19 +66,21 @@ Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 3/3, 100% |
-| Linha | 3/3, 100% |
-| Commit | 3/3, 100% |
-| Estrito | 3/3, 100% |
+| Causa | 5/5, 100% |
+| Linha | 5/5, 100% |
+| Commit | 5/5, 100% |
+| Estrito | 5/5, 100% |
 
-Níveis da Linha: 1=3 2=0 ausente=0.
+Níveis da Linha: 1=5 2=0 ausente=0.
 
 Por cenário:
 
 | Cenário | Causa | Linha | Commit | Estrito | Nível |
 |---|---|---|---|---|---|
 | n1-basic | ok | ok | ok | ok | 1 |
+| n1-errgroup | ok | ok | ok | ok | 1 |
 | n1-helper | ok | ok | ok | ok | 1 |
 | n1-rangefunc | ok | ok | ok | ok | 1 |
+| n1-workpool | ok | ok | ok | ok | 1 |
 
 O projeto avança em slices verticais; decisões ficam em `docs/adr/`.
