@@ -32,11 +32,12 @@ func WriteScoreboard(w io.Writer, sb Scoreboard) error {
 // and strict that was true and became false gives "<mode>.<scenario>.<metric>", even if the
 // aggregate did not change, and a scenario missing from the current run gives
 // "<mode>.<scenario>". A scenario that is new in the current run and a change of line level only
-// are not regressions.
+// are not regressions. For the detector false positive, less is better: a scenario whose
+// false_positive went from false to true gives "<mode>.<scenario>.false_positive" (ADR-0022).
 //
 // A baseline mode without scenarios (older scoreboard) uses the aggregate rule: a metric whose
-// hits dropped while the total stayed the same. Metrics with different denominators are not
-// compared.
+// hits dropped while the total stayed the same, or a detector false positive whose hits rose
+// while the total stayed the same. Metrics with different denominators are not compared.
 func Regressions(baseline, current Scoreboard) []string {
 	var out []string
 	for _, mode := range sortedKeys(baseline) {
@@ -72,6 +73,9 @@ func scenarioRegressions(mode string, base, cur map[string]Outcome) []string {
 				out = append(out, mode+"."+name+"."+metricNames[i])
 			}
 		}
+		if b.FalsePositive != nil && !*b.FalsePositive && c.FalsePositive != nil && *c.FalsePositive {
+			out = append(out, mode+"."+name+".false_positive")
+		}
 	}
 	return out
 }
@@ -82,6 +86,9 @@ func aggregateRegressions(mode string, base, cur Score) []string {
 		if pair[0].Total == pair[1].Total && pair[1].Hits < pair[0].Hits {
 			out = append(out, mode+"."+metricNames[i])
 		}
+	}
+	if b, c := base.DetectorFalsePositive, cur.DetectorFalsePositive; b != nil && c != nil && b.Total == c.Total && c.Hits > b.Hits {
+		out = append(out, mode+".detector_false_positive")
 	}
 	return out
 }
