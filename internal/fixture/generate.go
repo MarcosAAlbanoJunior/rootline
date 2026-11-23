@@ -24,14 +24,23 @@ type Options struct {
 // Commit is a generated commit.
 type Commit struct{ Label, SHA string }
 
-// AnswerKey is the full answer key, with the computed line.
+// AnswerKey is the full answer key, with the computed line. Distractors is omitted when the
+// scenario declares none.
 type AnswerKey struct {
-	Cause       string `json:"cause"`
-	Function    string `json:"function"`
-	File        string `json:"file"`
-	Marker      string `json:"marker"`
-	CommitLabel string `json:"commit_label"`
-	Line        int    `json:"line"`
+	Cause       string       `json:"cause"`
+	Function    string       `json:"function"`
+	File        string       `json:"file"`
+	Marker      string       `json:"marker"`
+	CommitLabel string       `json:"commit_label"`
+	Line        int          `json:"line"`
+	Distractors []Distractor `json:"distractors,omitempty"`
+}
+
+// Distractor is a distractor of the answer key, with its line at the bad commit of the symptom.
+type Distractor struct {
+	Function string `json:"function"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
 }
 
 // Generated describes the result of Generate.
@@ -49,11 +58,24 @@ var (
 	skippedDirs = map[string]bool{"bin": true, "out": true, ".git": true}
 )
 
-const leakedString = "rootline:answer"
+// leakedString is the prefix of every marker: no commit may contain it, because the modes with an
+// LLM read the code.
+const leakedString = "rootline:"
+
+// markedLine is where a distractor marker was found: the commit index and the 1-based line, and
+// the origin of that line by git blame (the line may come from an earlier commit when the patch
+// only appended the marker).
+type markedLine struct {
+	commit, line int
+	originSHA    string
+	originLine   int
+}
 
 // Generate creates <OutDir>/repo, a git repo with one commit per scenario commit, and
 // <OutDir>/answer_key.json. The marker of the answer commit is read to compute the line and
-// removed before the commit, so no commit contains it.
+// removed before the commit, so no commit contains it. A distractor marker is removed in the
+// commit where it appears, and its line is followed up to the bad commit of the symptom with git
+// blame (ADR-0022).
 func Generate(opts Options) (Generated, error) {
 	sc, err := LoadScenario(opts.ScenarioDir)
 	if err != nil {
@@ -76,6 +98,8 @@ func Generate(opts Options) (Generated, error) {
 		Marker: sc.Answer.Marker, CommitLabel: sc.Answer.Commit,
 	}}
 	foundAnswer := false
+	bad := -1
+	marked := make([]*markedLine, len(sc.Distractors))
 	for i, c := range sc.Commits {
 		if i == 0 {
 			for _, d := range copiedDirs {
@@ -97,17 +121,47 @@ func Generate(opts Options) (Generated, error) {
 			out.AnswerKey.Line = line
 			foundAnswer = true
 		}
+		if bad < 0 {
+			if err := stripDistractors(repo, sc.Distractors, marked, i); err != nil {
+				return Generated{}, err
+			}
+		}
 		sha, err := r.commit(i, c.Label)
 		if err != nil {
 			return Generated{}, err
 		}
-		if err := r.assertNoLeak(sha); err != nil {
+		if err := r.assertNoLeak(sha, c.Label); err != nil {
 			return Generated{}, err
 		}
 		out.Commits = append(out.Commits, Commit{Label: c.Label, SHA: sha})
+		for j, m := range marked {
+			if m != nil && m.commit == i {
+				if m.originSHA, m.originLine, err = r.originOf(sha, sc.Distractors[j].File, m.line); err != nil {
+					return Generated{}, fmt.Errorf("fixture: distractors[%d]: %w", j, err)
+				}
+			}
+		}
+		if c.Label == sc.Symptom.Bad {
+			bad = i
+		}
 	}
 	if !foundAnswer {
 		return Generated{}, fmt.Errorf("fixture: no commit labeled %q in scenario %s", sc.Answer.Commit, sc.Name)
+	}
+	for j, d := range sc.Distractors {
+		m := marked[j]
+		if m == nil {
+			return Generated{}, fmt.Errorf("fixture: distractors[%d]: no line ends with the marker %q in %s up to commit %q", j, d.Marker, d.File, sc.Symptom.Bad)
+		}
+		line, err := r.lineAt(out.Commits[bad].SHA, m.originSHA, d.File, m.originLine)
+		if err != nil {
+			return Generated{}, fmt.Errorf("fixture: distractors[%d]: %w", j, err)
+		}
+		if line == 0 {
+			return Generated{}, fmt.Errorf("fixture: distractors[%d]: the distractor line in %s (line %d of commit %q) was edited before commit %q",
+				j, d.File, m.line, sc.Commits[m.commit].Label, sc.Symptom.Bad)
+		}
+		out.AnswerKey.Distractors = append(out.AnswerKey.Distractors, Distractor{Function: d.Function, File: d.File, Line: line})
 	}
 
 	data, err := json.MarshalIndent(out.AnswerKey, "", "  ")
@@ -187,9 +241,40 @@ func applyPatch(r *repoRunner, scenarioDir, patch string) error {
 	return nil
 }
 
+// stripDistractors removes, in the working tree of commit index i, the marker of every distractor
+// not marked yet whose file has it, and records where it was.
+func stripDistractors(repo string, ds []ScenarioDistractor, marked []*markedLine, i int) error {
+	for j, d := range ds {
+		if marked[j] != nil {
+			continue
+		}
+		path := filepath.Join(repo, filepath.FromSlash(d.File))
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		line, err := removeMarker(path, d.Marker)
+		if err != nil {
+			return fmt.Errorf("fixture: distractors[%d]: %w", j, err)
+		}
+		if line > 0 {
+			marked[j] = &markedLine{commit: i, line: line}
+		}
+	}
+	return nil
+}
+
 // stripMarker finds the single line ending with marker, removes the marker (keeping the line
 // number) and returns the 1-based line number.
 func stripMarker(file, marker string) (int, error) {
+	line, err := removeMarker(file, marker)
+	if err == nil && line == 0 {
+		err = fmt.Errorf("fixture: no line ends with the marker %q in %s", marker, file)
+	}
+	return line, err
+}
+
+// removeMarker is stripMarker without the error for a file that has no marker: it returns 0.
+func removeMarker(file, marker string) (int, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return 0, err
@@ -206,7 +291,7 @@ func stripMarker(file, marker string) (int, error) {
 		}
 	}
 	if found == 0 {
-		return 0, fmt.Errorf("fixture: no line ends with the marker %q in %s", marker, file)
+		return 0, nil
 	}
 	return found, os.WriteFile(file, []byte(strings.Join(lines, "\n")), 0o644)
 }
@@ -254,8 +339,43 @@ func (r *repoRunner) commit(index int, label string) (string, error) {
 	return r.git(index, "rev-parse", "HEAD")
 }
 
-// assertNoLeak fails if any file in the commit contains the answer marker text.
-func (r *repoRunner) assertNoLeak(sha string) error {
+// originOf returns the commit and line that git blame gives as the origin of line of file at sha.
+func (r *repoRunner) originOf(sha, file string, line int) (string, int, error) {
+	n := strconv.Itoa(line)
+	out, err := r.git(0, "blame", "--porcelain", "-L", n+","+n, sha, "--", file)
+	if err != nil {
+		return "", 0, err
+	}
+	f := strings.Fields(strings.SplitN(out, "\n", 2)[0])
+	if len(f) < 3 {
+		return "", 0, fmt.Errorf("fixture: unexpected git blame output for %s:%d", file, line)
+	}
+	orig, err := strconv.Atoi(f[1])
+	return f[0], orig, err
+}
+
+// lineAt returns the line of file at commit bad whose origin, by git blame, is line of commit
+// origin; 0 when no line has that origin (a later commit edited it).
+func (r *repoRunner) lineAt(bad, origin, file string, line int) (int, error) {
+	out, err := r.git(0, "blame", "--porcelain", bad, "--", file)
+	if err != nil {
+		return 0, err
+	}
+	for _, l := range strings.Split(out, "\n") {
+		// Group headers: "<sha> <original line> <final line> [<lines in group>]".
+		f := strings.Fields(l)
+		if strings.HasPrefix(l, "\t") || len(f) < 3 || f[0] != origin {
+			continue
+		}
+		if orig, err := strconv.Atoi(f[1]); err == nil && orig == line {
+			return strconv.Atoi(f[2])
+		}
+	}
+	return 0, nil
+}
+
+// assertNoLeak fails if any file in the commit contains the marker prefix.
+func (r *repoRunner) assertNoLeak(sha, label string) error {
 	cmd := exec.Command("git", "grep", "-q", leakedString, sha)
 	cmd.Dir = r.dir
 	cmd.Env = r.env(0)
@@ -263,7 +383,7 @@ func (r *repoRunner) assertNoLeak(sha string) error {
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
-		return fmt.Errorf("fixture: commit %s still contains %q", sha, leakedString)
+		return fmt.Errorf("fixture: commit %q (%s) still contains %q", label, sha, leakedString)
 	case errors.As(err, &ee) && ee.ExitCode() == 1:
 		return nil
 	}

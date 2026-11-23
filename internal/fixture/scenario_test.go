@@ -4,6 +4,7 @@ package fixture_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,5 +140,50 @@ func TestLoadScenario_N1BasicDeclaresTheAssumption(t *testing.T) {
 	}
 	if want := "caso básico: loop no service, query no repository"; sc.Assumption != want {
 		t.Fatalf("Assumption = %q, want %q", sc.Assumption, want)
+	}
+}
+
+// scenarioJSONWithDistractors adds the raw JSON value of "distractors" to a valid scenario.
+func scenarioJSONWithDistractors(distractors string) string {
+	body := scenarioJSON(`{"service":"s","method":"GET","route":"/x","bad":"regressao"}`)
+	return strings.Replace(body, `{"name":"n",`, `{"name":"n","distractors":`+distractors+`,`, 1)
+}
+
+func TestLoadScenario_WithoutDistractorsBlockHasNoDistractors(t *testing.T) {
+	sc, err := loadScenarioWith(t, `{"service":"s","method":"GET","route":"/x","bad":"regressao"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Distractors) != 0 {
+		t.Fatalf("Distractors = %+v, want none", sc.Distractors)
+	}
+}
+
+func TestLoadScenario_DistractorsAreLoaded(t *testing.T) {
+	sc, err := loadScenarioJSON(t, scenarioJSONWithDistractors(`[{"function":"g","file":"b.go","marker":" // rootline:distractor"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []fixture.ScenarioDistractor{{Function: "g", File: "b.go", Marker: " // rootline:distractor"}}
+	if !slices.Equal(sc.Distractors, want) {
+		t.Fatalf("Distractors = %+v, want %+v", sc.Distractors, want)
+	}
+}
+
+func TestLoadScenario_InvalidDistractorIsAnErrorCitingItsIndex(t *testing.T) {
+	ok := `{"function":"g","file":"b.go","marker":"// d"}`
+	cases := []struct{ name, second, field string }{
+		{"no function", `{"file":"b.go","marker":"// d2"}`, "distractors[1].function"},
+		{"no file", `{"function":"g","marker":"// d2"}`, "distractors[1].file"},
+		{"no marker", `{"function":"g","file":"b.go"}`, "distractors[1].marker"},
+		{"marker of the answer", `{"function":"g","file":"b.go","marker":"// m"}`, "distractors[1].marker"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := loadScenarioJSON(t, scenarioJSONWithDistractors(`[`+ok+`,`+c.second+`]`))
+			if err == nil || !strings.Contains(err.Error(), c.field) {
+				t.Fatalf("err = %v, want an error citing %q", err, c.field)
+			}
+		})
 	}
 }

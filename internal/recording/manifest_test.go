@@ -95,3 +95,32 @@ func TestManifest_LoadIsWrittenWithItsRoutesAndWeights(t *testing.T) {
 		t.Fatalf("load = %v, want %v", doc.Load, want)
 	}
 }
+
+func TestManifest_AnswerKeyKeepsTheDistractorsAndOmitsThemWhenThereAreNone(t *testing.T) {
+	dir := t.TempDir()
+	with := sampleManifest()
+	with.AnswerKey.Distractors = []fixture.Distractor{{Function: "example.com/demo-app/internal/pages.(*Service).Pages", File: "demo-app/internal/pages/pages.go", Line: 7}}
+	path := filepath.Join(dir, "with.json")
+	if err := recording.WriteManifest(path, with); err != nil {
+		t.Fatal(err)
+	}
+	got, err := recording.ReadManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.AnswerKey.Distractors, with.AnswerKey.Distractors) {
+		t.Fatalf("distractors = %+v, want %+v", got.AnswerKey.Distractors, with.AnswerKey.Distractors)
+	}
+
+	path = filepath.Join(dir, "without.json")
+	if err := recording.WriteManifest(path, sampleManifest()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "distractors") {
+		t.Fatalf("a manifest without distractors must omit the field:\n%s", raw)
+	}
+}

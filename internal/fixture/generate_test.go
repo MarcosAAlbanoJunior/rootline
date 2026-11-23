@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -178,7 +179,7 @@ func TestGenerate_AnswerKeyPointsToTheCallInsideTheLoopAndMarkerIsRemoved(t *tes
 	if err := json.Unmarshal(raw, &fromFile); err != nil {
 		t.Fatal(err)
 	}
-	if fromFile != key {
+	if !reflect.DeepEqual(fromFile, key) {
 		t.Errorf("answer_key.json = %+v, want %+v", fromFile, key)
 	}
 	if _, err := os.Stat(filepath.Join(g.RepoDir, "answer_key.json")); err == nil {
