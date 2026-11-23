@@ -1,0 +1,17 @@
+{
+  "name": "n1-workpool",
+  "assumption": "as queries repetidas não têm o mesmo pai direto: cada uma roda num job de um pool de trabalho, sob um span workpool.job próprio, um por job",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "n_plus_one",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/shipments.(*Service).Shipments",
+    "file": "demo-app/internal/shipments/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/shipments", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/shipments", "weight": 3}, {"route": "/customers/{id}/dashboard", "weight": 1}]}
+}
