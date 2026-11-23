@@ -1,0 +1,66 @@
+diff --git a/demo-app/internal/summary/repository.go b/demo-app/internal/summary/repository.go
+index 7fc56e3..10e351c 100644
+--- a/demo-app/internal/summary/repository.go
++++ b/demo-app/internal/summary/repository.go
+@@ -50,10 +50,10 @@ func (r *Repository) Orders(ctx context.Context, customerID int64) ([]Order, err
+ 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Order])
+ }
+ 
+-// ItemsByOrders returns the items of all given orders in a single query.
+-func (r *Repository) ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error) {
++// ItemsByOrder returns the items of one order.
++func (r *Repository) ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error) {
+ 	rows, err := r.db.Query(ctx,
+-		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = ANY($1) ORDER BY id`, orderIDs)
++		`SELECT id, order_id, sku, qty FROM order_items WHERE order_id = $1 ORDER BY id`, orderID)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/demo-app/internal/summary/service.go b/demo-app/internal/summary/service.go
+index 7a26f30..4606543 100644
+--- a/demo-app/internal/summary/service.go
++++ b/demo-app/internal/summary/service.go
+@@ -22,7 +22,7 @@ type Summary struct {
+ // Store is what the service needs from the repository.
+ type Store interface {
+ 	Orders(ctx context.Context, customerID int64) ([]Order, error)
+-	ItemsByOrders(ctx context.Context, orderIDs []int64) ([]Item, error)
++	ItemsByOrder(ctx context.Context, orderID int64) ([]Item, error)
+ 	TotalQty(ctx context.Context, customerID int64) (int64, error)
+ }
+ 
+@@ -46,22 +46,18 @@ func (s *Service) Summary(ctx context.Context, customerID int64) (Summary, error
+ 	g.SetLimit(4)
+ 	var mu sync.Mutex
+ 	byOrder := make(map[int64][]Item, len(orders))
+-	g.Go(func() error {
+-		ids := make([]int64, 0, len(orders))
+-		for _, o := range orders {
+-			ids = append(ids, o.ID)
+-		}
+-		items, err := s.store.ItemsByOrders(gctx, ids)
+-		if err != nil {
+-			return err
+-		}
+-		mu.Lock()
+-		defer mu.Unlock()
+-		for _, it := range items {
+-			byOrder[it.OrderID] = append(byOrder[it.OrderID], it)
+-		}
+-		return nil
+-	})
++	for _, o := range orders {
++		g.Go(func() error {
++			items, err := s.store.ItemsByOrder(gctx, o.ID) // rootline:answer
++			if err != nil {
++				return err
++			}
++			mu.Lock()
++			defer mu.Unlock()
++			byOrder[o.ID] = items
++			return nil
++		})
++	}
+ 	var total int64
+ 	g.Go(func() error {
+ 		var err error
