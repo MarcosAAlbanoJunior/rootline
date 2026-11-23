@@ -18,11 +18,18 @@ type CommitRef struct {
 	SHA   string `json:"sha"`
 }
 
-// LoadConfig is the fixed load sent to each version.
+// LoadConfig is the fixed load sent to each version: Requests GET requests at Rate per second,
+// spread over Routes by weight in a deterministic cycle.
 type LoadConfig struct {
-	Requests int    `json:"requests"`
-	Rate     int    `json:"rate_per_second"`
-	Route    string `json:"route"`
+	Requests int         `json:"requests"`
+	Rate     int         `json:"rate_per_second"`
+	Routes   []LoadRoute `json:"routes"`
+}
+
+// LoadRoute is one route of the load and its weight in the request cycle.
+type LoadRoute struct {
+	Route  string `json:"route"`
+	Weight int    `json:"weight"`
 }
 
 // Manifest describes a recording. The answer key lives here, never in the fixture repo.

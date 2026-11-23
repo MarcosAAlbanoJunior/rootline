@@ -12,7 +12,7 @@ func TestBuildManifest_CopiesTheScenarioSymptomIntoTheManifest(t *testing.T) {
 	sc := fixture.Scenario{Name: "x", Symptom: sym}
 	gen := fixture.Generated{Commits: []fixture.Commit{{Label: "boa", SHA: "sha-boa"}, {Label: "ruim", SHA: "sha-ruim"}}}
 
-	m := buildManifest(sc, gen, LoadConfig{Route: "/things/{id}"})
+	m := buildManifest(sc, gen, DefaultLoad())
 
 	if m.Symptom != sym {
 		t.Fatalf("Symptom = %+v, want %+v", m.Symptom, sym)
