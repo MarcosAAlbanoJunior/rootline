@@ -25,6 +25,8 @@ jobs:
         with:
           version: v2.15.0
           install-only: true
+      - name: no spec refs
+        run: ./scripts/check-no-spec-refs.sh
       - name: root
         run: |
           go build ./...

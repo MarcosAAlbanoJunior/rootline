@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Gate local, igual ao job `check` do CI: build, testes, gofmt, vet e lint dos três módulos.
+# Gate local, igual ao job `check` do CI: referências a spec no código, build, testes, gofmt, vet e
+# lint dos três módulos.
 # Rode antes de declarar uma mudança pronta.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 export CGO_ENABLED=0
+
+echo "== referências a spec"
+./scripts/check-no-spec-refs.sh
 
 command -v golangci-lint >/dev/null || { echo "check: golangci-lint v2.15.0 não encontrado no PATH" >&2; exit 1; }
 

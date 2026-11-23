@@ -31,6 +31,7 @@ go test ./...
 Lint (golangci-lint v2.15.0, o mesmo do CI e do gate):
 
 ```sh
+./scripts/check-no-spec-refs.sh
 test -z "$(gofmt -l .)" && go vet ./...
 golangci-lint run
 (cd hook && GOWORK=off golangci-lint run)

@@ -22,11 +22,19 @@ go work init . ./hook ./demo-app
 - Lint (depguard, errcheck, govet, ineffassign, staticcheck, unused; golangci-lint v2.15.0, a mesma
   versão do CI): `golangci-lint run` na raiz e `GOWORK=off golangci-lint run` em `hook/` e `demo-app/`.
   `//nolint` só com o linter nomeado e o motivo: `//nolint:errcheck // <motivo>`.
-- Gate (`scripts/check.sh`): build + `go test ./...` + gofmt + `go vet` + lint dos três módulos, igual ao job `check` do CI. Rode antes de declarar uma mudança pronta.
+- Referências a spec: `./scripts/check-no-spec-refs.sh` (`git grep` nos `.go` rastreados dos três
+  módulos; sai com 1 se achar alguma). É o primeiro passo do gate.
+- Gate (`scripts/check.sh`): referências a spec + build + `go test ./...` + gofmt + `go vet` + lint dos três módulos, igual ao job `check` do CI. Rode antes de declarar uma mudança pronta.
 - CI (`.github/workflows/ci.yml`): `check` (o mesmo que o gate, nos três módulos), `cross` (compilação
   para linux/darwin/windows), `placar` (grava o n1-basic com Docker e roda `score` sem `--update`; desvio
   temporário do ADR-0008, issue #5) e `e2e` (só na `main` e sob demanda). Actions fixadas por SHA;
   o Dependabot atualiza.
+
+## Comentários e nomes de teste
+
+Código não cita spec, slice, critério de aceite nem "Expected API". Teste tem nome de comportamento.
+Comentário diz o porquê e, quando há uma decisão por trás, cita o ADR (`ADR-0014`). Doc comments de
+identificadores exportados ficam: são o contrato do godoc.
 
 ## Arquitetura
 
