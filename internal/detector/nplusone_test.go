@@ -133,7 +133,7 @@ func TestDetect_CandidateConfidenceAndScore(t *testing.T) {
 
 func mustOne(t *testing.T, trs [][]trace.Span) detector.Candidate {
 	t.Helper()
-	cands, err := detector.Detect(loopAtService, "abc1234", trs)
+	cands, _, err := detector.Detect(loopAtService, "abc1234", trs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestDetect_CandidateThresholds(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cands, err := detector.Detect(loopAtService, "abc1234", traces(tc.total, tc.with, healthy))
+			cands, _, err := detector.Detect(loopAtService, "abc1234", traces(tc.total, tc.with, healthy))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +188,7 @@ func TestDetect_LoopNotFoundIsReportedOncePerDistinctStack(t *testing.T) {
 		}
 		return plusOneThenRepeats(id, 10, 10, 3, stack(eightFramesWithoutLoop()...))
 	})
-	cands, err := detector.Detect(fakeEnv{}, "abc1234", trs)
+	cands, _, err := detector.Detect(fakeEnv{}, "abc1234", trs)
 	if err != nil {
 		t.Fatal(err)
 	}

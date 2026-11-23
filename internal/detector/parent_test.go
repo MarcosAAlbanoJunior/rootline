@@ -281,7 +281,7 @@ func TestDetect_HealthyPoolRouteCollapsesWithoutACandidate(t *testing.T) {
 			t.Errorf("query %s: got %+v, want %+v", id, e, want)
 		}
 	}
-	cands, err := detector.Detect(loopAtService, "abc1234", traces(5, 5, healthyPool))
+	cands, _, err := detector.Detect(loopAtService, "abc1234", traces(5, 5, healthyPool))
 	if err != nil {
 		t.Fatal(err)
 	}
