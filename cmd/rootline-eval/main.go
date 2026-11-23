@@ -189,6 +189,9 @@ func readScoreboardFile(path string) (evaluation.Scoreboard, error) {
 func printScore(w io.Writer, s, base evaluation.Score, hasBaseline bool) {
 	fmt.Fprintf(w, "detectors_only\n  Causa:  %s\n  Linha:  %s\n  Commit: %s\n  Estrito: %s\n", s.Cause, s.Line, s.Commit, s.Strict)
 	fmt.Fprintf(w, "  Níveis da Linha: 1=%d 2=%d ausente=%d\n", s.LineLevels.Level1, s.LineLevels.Level2, s.LineLevels.None)
+	if s.DetectorFalsePositive != nil {
+		fmt.Fprintf(w, "  Falso positivo de detector: %s\n", *s.DetectorFalsePositive)
+	}
 	names := make([]string, 0, len(s.Scenarios))
 	for name := range s.Scenarios {
 		names = append(names, name)
@@ -197,12 +200,22 @@ func printScore(w io.Writer, s, base evaluation.Score, hasBaseline bool) {
 	for _, name := range names {
 		o := s.Scenarios[name]
 		suffix := ""
+		if o.FalsePositive != nil {
+			suffix = " FalsoPositivo=" + yesOrNo(*o.FalsePositive)
+		}
 		if _, known := base.Scenarios[name]; hasBaseline && !known {
-			suffix = " (novo)"
+			suffix += " (novo)"
 		}
 		fmt.Fprintf(w, "  %s: Causa=%s Linha=%s Commit=%s Estrito=%s Nível=%d%s\n",
 			name, okOrError(o.Cause), okOrError(o.Line), okOrError(o.Commit), okOrError(o.Strict), o.LineLevel, suffix)
 	}
+}
+
+func yesOrNo(b bool) string {
+	if b {
+		return "sim"
+	}
+	return "não"
 }
 
 func okOrError(hit bool) string {
@@ -288,6 +301,9 @@ func scoreManifest(rec string, m recording.Manifest, analyze analyzer) (evaluati
 
 	key := evaluation.Key{CauseType: m.AnswerKey.Cause, Function: m.AnswerKey.Function, File: m.AnswerKey.File,
 		Line: m.AnswerKey.Line, CommitLabel: m.AnswerKey.CommitLabel}
+	for _, d := range m.AnswerKey.Distractors {
+		key.Distractors = append(key.Distractors, evaluation.Distractor{Function: d.Function, File: d.File, Line: d.Line})
+	}
 	found := foundFromResult(res)
 	return evaluation.ScoreOne(key, found, labelOf), nil
 }
@@ -357,8 +373,16 @@ func writeScoreboardAtomically(path string, sb evaluation.Scoreboard) (err error
 
 // foundFromResult reduces a Result to what is scored. Only a level-1 location counts for Line:
 // a level-2 (approximate) or absent location is a Line error, and stays in the denominator.
+// Candidates has the location of every candidate, for the detector false positive (ADR-0022).
 func foundFromResult(res analysis.Result) evaluation.Found {
 	var found evaluation.Found
+	for _, c := range res.Candidates {
+		var loc evaluation.CandidateLocation
+		if l := c.Location; l != nil {
+			loc = evaluation.CandidateLocation{Level: l.Level, Function: l.Function, File: l.File, Line: l.Line}
+		}
+		found.Candidates = append(found.Candidates, loc)
+	}
 	if res.Cause == nil {
 		return found
 	}

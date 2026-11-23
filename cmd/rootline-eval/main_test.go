@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -237,7 +238,7 @@ func TestFoundFromResultOnlyLevelOneCountsAsALocation(t *testing.T) {
 	if none.HasLocation || !none.HasCause {
 		t.Fatalf("absent location: %+v", none)
 	}
-	if got := foundFromResult(analysis.Result{}); got != (evaluation.Found{}) {
+	if got := foundFromResult(analysis.Result{}); !reflect.DeepEqual(got, evaluation.Found{}) {
 		t.Fatalf("no cause must give an empty Found, got %+v", got)
 	}
 }
