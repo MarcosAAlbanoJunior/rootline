@@ -40,6 +40,8 @@ type Manifest struct {
 	Seed      string            `json:"seed"`
 	Load      LoadConfig        `json:"load"`
 	Symptom   fixture.Symptom   `json:"symptom"`
+	// ServerVersion is the Postgres server_version the plans were made with (ADR-0025).
+	ServerVersion string `json:"server_version,omitempty"`
 }
 
 // WriteManifest writes m as indented JSON.

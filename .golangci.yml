@@ -25,6 +25,7 @@ linters:
             - "**/internal/detector/**"
             - "**/internal/correlation/**"
             - "**/internal/evaluation/**"
+            - "**/internal/explain/**"
           list-mode: strict
           allow:
             - $gostd
@@ -33,6 +34,7 @@ linters:
             - github.com/MarcosAAlbanoJunior/rootline/internal/detector
             - github.com/MarcosAAlbanoJunior/rootline/internal/correlation
             - github.com/MarcosAAlbanoJunior/rootline/internal/evaluation
+            - github.com/MarcosAAlbanoJunior/rootline/internal/explain
           deny:
             - pkg: github.com/MarcosAAlbanoJunior/rootline/internal/adapter
               desc: domínio não importa adapters
