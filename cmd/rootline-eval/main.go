@@ -319,7 +319,7 @@ func scoreManifest(rec string, m recording.Manifest, analyze analyzer) (evaluati
 		return evaluation.Outcome{}, err
 	}
 
-	key := evaluation.Key{CauseType: m.AnswerKey.Cause, Function: m.AnswerKey.Function, File: m.AnswerKey.File,
+	key := evaluation.Key{CauseType: m.AnswerKey.Cause, Function: m.AnswerKey.Function, Target: m.AnswerKey.Target, File: m.AnswerKey.File,
 		Line: m.AnswerKey.Line, CommitLabel: m.AnswerKey.CommitLabel}
 	for _, d := range m.AnswerKey.Distractors {
 		key.Distractors = append(key.Distractors, evaluation.Distractor{Function: d.Function, File: d.File, Line: d.Line})
@@ -406,7 +406,7 @@ func foundFromResult(res analysis.Result) evaluation.Found {
 	if res.Cause == nil {
 		return found
 	}
-	found.HasCause, found.CauseType = true, res.Cause.Type
+	found.HasCause, found.CauseType, found.Target = true, res.Cause.Type, res.Cause.Target
 	if l := res.Cause.Location; l != nil {
 		found.Function, found.Level = l.Function, l.Level
 		if l.Level == 1 {
