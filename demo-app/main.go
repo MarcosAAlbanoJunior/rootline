@@ -5,12 +5,14 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"time"
 
 	"github.com/exaring/otelpgx"
@@ -28,8 +30,11 @@ import (
 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
 )
 
-//go:embed schema.sql
-var schemaSQL string
+// schemaFS holds the SQL scripts applied at startup. A scenario adds its own seed as another file
+// of the folder, applied after the base by name.
+//
+//go:embed schema/*.sql
+var schemaFS embed.FS
 
 func main() {
 	if err := run(); err != nil {
@@ -94,9 +99,36 @@ func run() error {
 }
 
 func applySchema(ctx context.Context, pool *pgxpool.Pool) error {
-	// Simple protocol so the multi-statement script runs in one round trip.
-	_, err := pool.Exec(ctx, schemaSQL, pgx.QueryExecModeSimpleProtocol)
-	return err
+	scripts, err := schemaScripts(schemaFS)
+	if err != nil {
+		return err
+	}
+	for _, sql := range scripts {
+		// Simple protocol so each multi-statement script runs in one round trip.
+		if _, err := pool.Exec(ctx, sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// schemaScripts returns the contents of the schema/*.sql files in lexicographic order of name.
+func schemaScripts(fsys fs.FS) ([]string, error) {
+	names, err := fs.Glob(fsys, "schema/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	// fs.Glob already sorts, but the order is the contract, so it is not left implicit.
+	sort.Strings(names)
+	scripts := make([]string, 0, len(names))
+	for _, n := range names {
+		data, err := fs.ReadFile(fsys, n)
+		if err != nil {
+			return nil, err
+		}
+		scripts = append(scripts, string(data))
+	}
+	return scripts, nil
 }
 
 func envOr(key, def string) string {

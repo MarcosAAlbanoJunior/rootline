@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS order_items (
     qty      INT NOT NULL
 );
 
+-- The foreign keys are indexed: the base demo-app is healthy, and a missing-index scenario removes
+-- or avoids an index on purpose (ADR-0023).
+CREATE INDEX IF NOT EXISTS orders_customer_id_idx ON orders (customer_id);
+CREATE INDEX IF NOT EXISTS order_items_order_id_idx ON order_items (order_id);
+
 -- Deterministic seed "deterministic-sql-v1": 20 customers, 10 orders each, 3 items per order.
 INSERT INTO customers (id, name)
 SELECT c, 'customer-' || c FROM generate_series(1, 20) AS c
