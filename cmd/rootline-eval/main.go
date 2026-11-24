@@ -14,6 +14,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/gitcli"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/goindex"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/otlpfile"
+	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/planfile"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/analysis"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/evaluation"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
@@ -129,7 +130,7 @@ type scorer func(recordingsDir string) (evaluation.Scoreboard, error)
 
 func score(args []string, stdout, stderr io.Writer, scoreAll scorer) int {
 	fs := newFlags("score", stderr)
-	recordings := fs.String("recordings", "", "directory with recordings (each with manifest.json and traces.jsonl)")
+	recordings := fs.String("recordings", "", "directory with recordings (each with manifest.json, traces.jsonl and, optionally, plans.jsonl)")
 	placar := fs.String("placar", "", "scoreboard file")
 	update := fs.Bool("update", false, "rewrite the scoreboard with the current result")
 	if code := parse(fs, args, stderr, "recordings", "placar"); code != 0 {
@@ -273,14 +274,33 @@ func fileExists(p string) bool {
 // analyzer runs the analysis of one recording for a symptom.
 type analyzer func(rec string, s analysis.Symptom) (analysis.Result, error)
 
-// analyzeRecording analyzes the recorded traces against the fixture repository of the recording.
+// analyzeRecording analyzes the recorded traces against the fixture repository of the recording,
+// with its execution plans when it has them.
 func analyzeRecording(rec string, s analysis.Symptom) (analysis.Result, error) {
 	spans, err := otlpfile.ReadFile(filepath.Join(rec, "traces.jsonl"))
 	if err != nil {
 		return analysis.Result{}, err
 	}
+	plans, err := plansOf(rec)
+	if err != nil {
+		return analysis.Result{}, err
+	}
 	git := gitcli.New(filepath.Join(rec, "repo"))
-	return analysis.Analyze(fileSource(spans), goindex.New(git), git, nil, s)
+	return analysis.Analyze(fileSource(spans), goindex.New(git), git, plans, s)
+}
+
+// plansOf reads the recording's plans.jsonl (ADR-0025). A recording made before it has none: the
+// result is nil, and the analysis runs and says the missing-index detector did not.
+func plansOf(rec string) (analysis.Explainer, error) {
+	path := filepath.Join(rec, "plans.jsonl")
+	if !fileExists(path) {
+		return nil, nil
+	}
+	p, err := planfile.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // scoreManifest builds the Symptom from the manifest, runs the analysis and scores the Result
