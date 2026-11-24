@@ -55,6 +55,9 @@ rota nova) entra por um **patch de preparação** no commit `referencia`:
   distrator, que o gerador remove antes do commit (veja [Distratores](#distratores)). Nenhum commit
   gerado pode ter o prefixo `rootline:`.
 - O commit seguinte aplica o patch dele por cima do de preparação.
+- Dados próprios do cenário entram como um `.sql` novo em `demo-app/schema/` (ex.: `100_payments.sql`).
+  O demo-app aplica todos os `.sql` dessa pasta em ordem de nome, depois do `000_base.sql`. O schema base
+  já indexa as chaves estrangeiras ([ADR-0023](../docs/adr/0023-indice-faltando-pelo-plano-de-execucao.md)).
 
 `go test ./internal/fixture/` gera todos os cenários deste diretório. Patch que deixou de aplicar falha
 ali, citando o cenário, antes de chegar ao CI.
