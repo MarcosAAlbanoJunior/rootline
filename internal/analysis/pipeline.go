@@ -54,12 +54,19 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	for _, d := range discarded {
 		res.Observations = append(res.Observations, fmt.Sprintf("pagination_shape: %s (%d traces)", d.Query, d.Traces))
 	}
-	if plans != nil {
-		idxCands, err := detector.DetectMissingIndex(env{idx: idx, git: git}, plans, s.BadVersion, spansOf(bad))
+	if plans == nil {
+		// A warning, not an observation: it describes the analysis, not the system (ADR-0023). The
+		// "missing_index_skipped:" prefix is the stable id.
+		res.Warnings = append(res.Warnings, "missing_index_skipped: no query plans")
+	} else {
+		idxCands, skipped, err := detector.DetectMissingIndex(env{idx: idx, git: git}, plans, s.BadVersion, spansOf(bad))
 		if err != nil {
 			return Result{}, err
 		}
 		cands = append(cands, idxCands...)
+		for _, sk := range skipped {
+			res.Warnings = appendUnique(res.Warnings, fmt.Sprintf("missing_index_skipped: %s: %s", sk.Query, sk.Reason))
+		}
 	}
 
 	scored := make([]scoredCandidate, 0, len(cands))

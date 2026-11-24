@@ -2,7 +2,6 @@ package detector
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"sort"
 
@@ -54,6 +53,14 @@ type PlanFinding struct {
 	GenericPlan   bool
 }
 
+// Skipped is a query of the analyzed traces whose plan could not be judged, and why.
+type Skipped struct {
+	Query, Reason string
+}
+
+// ReasonNoRecordedPlan is the Skipped reason of a query absent from the plans.
+const ReasonNoRecordedPlan = "no recorded plan"
+
 // indexAgg aggregates the spans of one (query, location) across traces.
 type indexAgg struct {
 	reason   string
@@ -74,10 +81,12 @@ type planNode struct {
 // DetectMissingIndex receives the traces of the entry operation in the bad version and returns the
 // missing-index candidates (ADR-0023), highest score first: a query whose plan scans a large table
 // sequentially through a selective filter. The candidates are located at the innermost app frame,
-// where the query is issued (ADR-0024), and aggregated as in the N+1 detector.
-func DetectMissingIndex(env Env, plans PlanSource, sha string, traces [][]trace.Span) ([]Candidate, error) {
+// where the query is issued (ADR-0024), and aggregated as in the N+1 detector. It also returns, in
+// the order they appeared, the queries it could not judge: unrecorded or unexplainable.
+func DetectMissingIndex(env Env, plans PlanSource, sha string, traces [][]trace.Span) ([]Candidate, []Skipped, error) {
 	total := len(traces)
 	findings := map[string]*PlanFinding{} // query -> finding, nil when the plan has none
+	var skipped []Skipped
 	aggs := map[candKey]*indexAgg{}
 	var order []candKey
 	for ti, spans := range traces {
@@ -87,13 +96,20 @@ func DetectMissingIndex(env Env, plans PlanSource, sha string, traces [][]trace.
 			}
 			text, _ := s.String(attrQueryText)
 			q := Normalize(text)
+			if q == "" {
+				continue // no text, no plan: the recording does not explain it either
+			}
 			f, seen := findings[q]
 			if !seen {
+				var skip string
 				var err error
-				if f, err = findingOf(plans, sha, q); err != nil {
-					return nil, err
+				if f, skip, err = findingOf(plans, sha, q); err != nil {
+					return nil, nil, err
 				}
 				findings[q] = f
+				if skip != "" {
+					skipped = append(skipped, Skipped{Query: q, Reason: skip})
+				}
 			}
 			if f == nil {
 				continue
@@ -147,23 +163,30 @@ func DetectMissingIndex(env Env, plans PlanSource, sha string, traces [][]trace.
 		out = append(out, c)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	return out, nil
+	return out, skipped, nil
 }
 
-// findingOf evaluates the plan of a query; nil means no missing-index finding (or no plan).
-func findingOf(plans PlanSource, sha, query string) (*PlanFinding, error) {
+// findingOf evaluates the plan of a query; a nil finding means none. skip says why the plan could
+// not be judged.
+func findingOf(plans PlanSource, sha, query string) (f *PlanFinding, skip string, err error) {
 	p, found, err := plans.Plan(sha, query)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if !found || len(p.Plan) == 0 {
-		return nil, nil
+	switch {
+	case !found:
+		return nil, ReasonNoRecordedPlan, nil
+	case p.Unexplainable != "":
+		return nil, p.Unexplainable, nil
+	case len(p.Plan) == 0:
+		return nil, "empty plan", nil
 	}
 	var roots []struct {
 		Plan planNode `json:"Plan"`
 	}
 	if err := json.Unmarshal(p.Plan, &roots); err != nil {
-		return nil, fmt.Errorf("plan of %q at %s: %w", query, sha, err)
+		// One malformed plan only costs that query, not the analysis.
+		return nil, "unreadable plan: " + err.Error(), nil
 	}
 	var best *PlanFinding
 	for _, r := range roots {
@@ -176,7 +199,7 @@ func findingOf(plans PlanSource, sha, query string) (*PlanFinding, error) {
 			}
 		})
 	}
-	return best, nil
+	return best, "", nil
 }
 
 // walkPlan visits every node with its total row estimate: its own Plan Rows, or, for a parallel

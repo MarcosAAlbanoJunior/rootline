@@ -88,11 +88,52 @@ func TestAnalyze_SelectiveSeqScanBecomesAMissingIndexCauseWithTheTableAsTarget(t
 	}
 }
 
-func TestAnalyze_WithoutPlansThereIsNoMissingIndexCandidate(t *testing.T) {
+func TestAnalyze_WithoutPlansThereIsNoMissingIndexCandidateAndItSaysSo(t *testing.T) {
 	m := analyzeJSON(t, allSpans(4, 4, singleQueryTrace), nil)
 	if len(m["candidates"].([]any)) != 0 {
 		t.Fatalf("candidates = %v, want none without plans", m["candidates"])
 	}
+	if n := countString(m["warnings"], "missing_index_skipped: no query plans"); n != 1 {
+		t.Errorf("warnings = %v, want missing_index_skipped: no query plans once", m["warnings"])
+	}
+	if n := countString(m["observations"], "missing_index_skipped: no query plans"); n != 0 {
+		t.Errorf("observations = %v, want the notice only in warnings", m["observations"])
+	}
+}
+
+func TestAnalyze_WithoutPlansTheNPlusOneCandidatesDoNotChange(t *testing.T) {
+	without := analyzeJSON(t, allSpans(4, 4, badTrace), nil)
+	with := analyzeJSON(t, allSpans(4, 4, badTrace), fakePlans{})
+	if fmt.Sprint(without["candidates"]) != fmt.Sprint(with["candidates"]) {
+		t.Fatalf("candidates without plans %v, with plans %v", without["candidates"], with["candidates"])
+	}
+}
+
+func TestAnalyze_QueriesWithoutAPlanAreReportedOnceEach(t *testing.T) {
+	plans := fakePlans{items: {Unexplainable: "not a single SELECT"}}
+	m := analyzeJSON(t, allSpans(4, 4, badTrace), plans)
+
+	for _, w := range []string{
+		"missing_index_skipped: " + orders + ": no recorded plan",
+		"missing_index_skipped: " + items + ": not a single SELECT",
+	} {
+		if n := countString(m["warnings"], w); n != 1 {
+			t.Errorf("warnings = %v, want %q once", m["warnings"], w)
+		}
+	}
+	if n := countString(m["warnings"], "missing_index_skipped: no query plans"); n != 0 {
+		t.Errorf("warnings = %v, want no 'no query plans' when plans were given", m["warnings"])
+	}
+}
+
+func countString(list any, s string) int {
+	n := 0
+	for _, v := range list.([]any) {
+		if v == s {
+			n++
+		}
+	}
+	return n
 }
 
 func TestAnalyze_NPlusOneHasNoTarget(t *testing.T) {
