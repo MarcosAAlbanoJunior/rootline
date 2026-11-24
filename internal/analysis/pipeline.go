@@ -10,8 +10,9 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
-// Analyze builds the Result for the symptom from the recorded traces, the code index and git.
-func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error) {
+// Analyze builds the Result for the symptom from the recorded traces, the code index, git and the
+// execution plans. plans may be nil: the missing-index detector then does not run.
+func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom) (Result, error) {
 	spans, err := src.Spans()
 	if err != nil {
 		return Result{}, err
@@ -53,6 +54,13 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 	for _, d := range discarded {
 		res.Observations = append(res.Observations, fmt.Sprintf("pagination_shape: %s (%d traces)", d.Query, d.Traces))
 	}
+	if plans != nil {
+		idxCands, err := detector.DetectMissingIndex(env{idx: idx, git: git}, plans, s.BadVersion, spansOf(bad))
+		if err != nil {
+			return Result{}, err
+		}
+		cands = append(cands, idxCands...)
+	}
 
 	scored := make([]scoredCandidate, 0, len(cands))
 	for _, c := range cands {
@@ -85,20 +93,12 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 	newID := func() string { nextEvidence++; return fmt.Sprintf("E%d", nextEvidence) }
 	for i, sc := range scored {
 		cand := Candidate{
-			ID: fmt.Sprintf("C%d", i+1), Type: TypeNPlusOne, Score: sc.score,
+			ID: fmt.Sprintf("C%d", i+1), Type: sc.c.Type, Target: sc.c.Target, Score: sc.score,
 			Confidence: sc.c.Confidence, Location: sc.loc, Evidence: []string{},
 		}
-		rq := RepeatedQueryEvidence{
-			ID: newID(), Kind: "repeated_query", Query: sc.c.Query,
-			GroupSizeMedian: sc.c.GroupSizeMedian, RowsMedian: sc.c.RowsMedian,
-			PlusOneMatchedRatio: sc.c.PlusOneMatchedRatio,
-			TracesAffected:      sc.c.TracesAffected, TracesTotal: sc.c.TracesTotal,
-			PhaseInferred: sc.c.PhaseInferred, SampleTraceID: sc.c.SampleTraceID,
-			SampleParentSpanID:  sc.c.SampleParentSpanID,
-			CollapsedParentName: sc.c.CollapsedParentName, CollapsedParentCount: sc.c.CollapsedParentCount,
-		}
-		res.Evidence = append(res.Evidence, rq)
-		cand.Evidence = append(cand.Evidence, rq.ID)
+		id := newID()
+		res.Evidence = append(res.Evidence, causeEvidence(id, sc.c))
+		cand.Evidence = append(cand.Evidence, id)
 		if sc.touch != nil {
 			st := StackTouchEvidence{
 				ID: newID(), Kind: "stack_touch", Commit: sc.touch.Commit,
@@ -117,7 +117,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 
 	if len(scored) > 0 {
 		top := res.Candidates[0]
-		cause := &Cause{CandidateID: top.ID, Type: top.Type, Confidence: top.Confidence, Location: top.Location}
+		cause := &Cause{CandidateID: top.ID, Type: top.Type, Target: top.Target, Confidence: top.Confidence, Location: top.Location}
 		if t := scored[0].touch; t != nil {
 			cause.Commit = &CommitRef{SHA: t.Commit, Touch: t.Strength}
 		}
@@ -125,6 +125,27 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, s Symptom) (Result, error)
 		res.Status = StatusCauseFound
 	}
 	return res, nil
+}
+
+// causeEvidence is the evidence of what the detector saw: the repeated query of an N+1 or the plan
+// node of a missing index.
+func causeEvidence(id string, c detector.Candidate) any {
+	if c.Plan != nil {
+		return QueryPlanEvidence{
+			ID: id, Kind: "query_plan", Query: c.Query, NodeType: c.Plan.NodeType, Table: c.Plan.Table,
+			RelTuples: c.Plan.RelTuples, PlanRows: c.Plan.PlanRows, Selectivity: c.Plan.Selectivity,
+			TracesAffected: c.TracesAffected, TracesTotal: c.TracesTotal, SampleTraceID: c.SampleTraceID,
+		}
+	}
+	return RepeatedQueryEvidence{
+		ID: id, Kind: "repeated_query", Query: c.Query,
+		GroupSizeMedian: c.GroupSizeMedian, RowsMedian: c.RowsMedian,
+		PlusOneMatchedRatio: c.PlusOneMatchedRatio,
+		TracesAffected:      c.TracesAffected, TracesTotal: c.TracesTotal,
+		PhaseInferred: c.PhaseInferred, SampleTraceID: c.SampleTraceID,
+		SampleParentSpanID:  c.SampleParentSpanID,
+		CollapsedParentName: c.CollapsedParentName, CollapsedParentCount: c.CollapsedParentCount,
+	}
 }
 
 type scoredCandidate struct {
@@ -177,8 +198,12 @@ func toLocation(l *detector.Location) *Location {
 	if l == nil {
 		return nil
 	}
-	inLoop := l.InLoop
-	return &Location{Level: l.Level, Function: l.Function, File: l.File, Line: l.Line, InLoop: &inLoop}
+	loc := &Location{Level: l.Level, Function: l.Function, File: l.File, Line: l.Line}
+	if l.LoopChecked {
+		inLoop := l.InLoop
+		loc.InLoop = &inLoop
+	}
+	return loc
 }
 
 // env adapts the analysis ports to detector.Env.

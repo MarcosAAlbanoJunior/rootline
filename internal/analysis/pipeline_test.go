@@ -109,7 +109,7 @@ var symptom = analysis.Symptom{
 
 func run(t *testing.T, src source, g fakeGit, s analysis.Symptom) map[string]any {
 	t.Helper()
-	res, err := analysis.Analyze(src, fakeIndex{}, g, s)
+	res, err := analysis.Analyze(src, fakeIndex{}, g, nil, s)
 	if err != nil {
 		t.Fatal(err)
 	}

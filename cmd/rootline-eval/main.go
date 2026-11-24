@@ -280,7 +280,7 @@ func analyzeRecording(rec string, s analysis.Symptom) (analysis.Result, error) {
 		return analysis.Result{}, err
 	}
 	git := gitcli.New(filepath.Join(rec, "repo"))
-	return analysis.Analyze(fileSource(spans), goindex.New(git), git, s)
+	return analysis.Analyze(fileSource(spans), goindex.New(git), git, nil, s)
 }
 
 // scoreManifest builds the Symptom from the manifest, runs the analysis and scores the Result

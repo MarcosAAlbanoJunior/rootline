@@ -1,5 +1,7 @@
 package analysis
 
+import "github.com/MarcosAAlbanoJunior/rootline/internal/detector"
+
 // Result constants.
 const (
 	SchemaVersion = "0"
@@ -8,7 +10,8 @@ const (
 	StatusCauseFound   = "cause_found"
 	StatusInconclusive = "inconclusive"
 
-	TypeNPlusOne = "n_plus_one"
+	TypeNPlusOne     = detector.TypeNPlusOne
+	TypeMissingIndex = detector.TypeMissingIndex
 )
 
 // Result is the analysis output. Its JSON form is the output contract of the CLI (keys in English,
@@ -47,7 +50,7 @@ type Location struct {
 	Function    string `json:"function"`
 	File        string `json:"file"`
 	Line        int    `json:"line,omitempty"`
-	InLoop      *bool  `json:"in_loop,omitempty"` // nil for level 2: nothing was checked
+	InLoop      *bool  `json:"in_loop,omitempty"` // nil when nothing was checked: level 2, or a strategy without the loop rule
 	Approximate bool   `json:"approximate,omitempty"`
 }
 
@@ -61,6 +64,7 @@ type CommitRef struct {
 type Cause struct {
 	CandidateID string     `json:"candidate_id"`
 	Type        string     `json:"type"`
+	Target      string     `json:"target,omitempty"` // the cause target, when the type has one (ADR-0026)
 	Confidence  string     `json:"confidence"`
 	Location    *Location  `json:"location"`
 	Commit      *CommitRef `json:"commit"`
@@ -70,6 +74,7 @@ type Cause struct {
 type Candidate struct {
 	ID         string    `json:"id"`
 	Type       string    `json:"type"`
+	Target     string    `json:"target,omitempty"` // the cause target, when the type has one (ADR-0026)
 	Score      float64   `json:"score"`
 	Confidence string    `json:"confidence"`
 	Location   *Location `json:"location"`
@@ -93,6 +98,22 @@ type RepeatedQueryEvidence struct {
 	// repeated wrapper spans into the effective parent (ADR-0020).
 	CollapsedParentName  string `json:"collapsed_parent_name,omitempty"`
 	CollapsedParentCount int    `json:"collapsed_parent_count,omitempty"`
+}
+
+// QueryPlanEvidence is the plan node behind a missing-index candidate: a sequential scan through a
+// selective filter on a large table (ADR-0023). All numbers are planner estimates.
+type QueryPlanEvidence struct {
+	ID             string  `json:"id"`
+	Kind           string  `json:"kind"`
+	Query          string  `json:"query"`
+	NodeType       string  `json:"node_type"`
+	Table          string  `json:"table"`
+	RelTuples      float64 `json:"reltuples"`
+	PlanRows       float64 `json:"plan_rows"`
+	Selectivity    float64 `json:"selectivity"`
+	TracesAffected int     `json:"traces_affected"`
+	TracesTotal    int     `json:"traces_total"`
+	SampleTraceID  string  `json:"sample_trace_id"`
 }
 
 // StackTouchEvidence is a commit that changed a function on the candidate's stack.
