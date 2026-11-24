@@ -1,0 +1,198 @@
+diff --git a/demo-app/internal/payments/handler.go b/demo-app/internal/payments/handler.go
+new file mode 100644
+index 0000000..c3a59ca
+--- /dev/null
++++ b/demo-app/internal/payments/handler.go
+@@ -0,0 +1,45 @@
++package payments
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Balancer is what the handler needs from the service.
++type Balancer interface {
++	Balance(ctx context.Context, customerID int64) (Balance, error)
++}
++
++// Handler serves the balance HTTP endpoint.
++type Handler struct {
++	balancer Balancer
++}
++
++// NewHandler returns a Handler over balancer.
++func NewHandler(balancer Balancer) *Handler {
++	return &Handler{balancer: balancer}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/balance", h.balance)
++}
++
++func (h *Handler) balance(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	out, err := h.balancer.Balance(r.Context(), id)
++	if err != nil {
++		slog.Error("balance failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(out)
++}
+diff --git a/demo-app/internal/payments/repository.go b/demo-app/internal/payments/repository.go
+new file mode 100644
+index 0000000..66ffda0
+--- /dev/null
++++ b/demo-app/internal/payments/repository.go
+@@ -0,0 +1,48 @@
++// Package payments is the demo-app's customer balance: recent payments and totals.
++package payments
++
++import (
++	"context"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Payment is one row of the payments table.
++type Payment struct {
++	ID     int64  `json:"id"`
++	Amount int    `json:"amount"`
++	Status string `json:"status"`
++}
++
++// Repository reads payments from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// RecentByCustomer returns the customer's last ten payments, newest first.
++func (r *Repository) RecentByCustomer(ctx context.Context, customerID int64) ([]Payment, error) {
++	rows, err := r.db.Query(ctx, `SELECT id, amount, status FROM payments WHERE customer_id = $1 ORDER BY id DESC LIMIT 10`, customerID)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Payment])
++}
++
++// LargePaymentsTotal sums every payment above threshold, across all customers.
++func (r *Repository) LargePaymentsTotal(ctx context.Context, threshold int) (int64, error) {
++	rows, err := r.db.Query(ctx, `SELECT coalesce(sum(amount), 0) FROM payments WHERE amount > $1`, threshold) // rootline:distractor
++	if err != nil {
++		return 0, err
++	}
++	return pgx.CollectExactlyOneRow(rows, pgx.RowTo[int64])
++}
+diff --git a/demo-app/internal/payments/service.go b/demo-app/internal/payments/service.go
+new file mode 100644
+index 0000000..270a46a
+--- /dev/null
++++ b/demo-app/internal/payments/service.go
+@@ -0,0 +1,41 @@
++package payments
++
++import "context"
++
++// largePayment is the amount above which a payment counts as large.
++const largePayment = 900
++
++// Balance is a customer's recent payments and the platform's large-payments total.
++type Balance struct {
++	Recent     []Payment `json:"recent"`
++	LargeTotal int64     `json:"large_total"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	RecentByCustomer(ctx context.Context, customerID int64) ([]Payment, error)
++	LargePaymentsTotal(ctx context.Context, threshold int) (int64, error)
++}
++
++// Service builds a customer's balance.
++type Service struct {
++	store Store
++}
++
++// NewService returns a Service over store.
++func NewService(store Store) *Service {
++	return &Service{store: store}
++}
++
++// Balance reads the customer's recent payments and the large-payments total.
++func (s *Service) Balance(ctx context.Context, customerID int64) (Balance, error) {
++	recent, err := s.store.RecentByCustomer(ctx, customerID)
++	if err != nil {
++		return Balance{}, err
++	}
++	total, err := s.store.LargePaymentsTotal(ctx, largePayment)
++	if err != nil {
++		return Balance{}, err
++	}
++	return Balance{Recent: recent, LargeTotal: total}, nil
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 709ad4c..603967c 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -27,6 +27,7 @@ import (
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/payments"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+ 
+@@ -79,6 +80,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	payments.NewHandler(payments.NewService(payments.NewRepository(pool))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),
+diff --git a/demo-app/schema/100_payments.sql b/demo-app/schema/100_payments.sql
+new file mode 100644
+index 0000000..c8e8322
+--- /dev/null
++++ b/demo-app/schema/100_payments.sql
+@@ -0,0 +1,20 @@
++-- Payments: one per order, with a year of order history.
++CREATE TABLE IF NOT EXISTS payments (
++    id          BIGINT PRIMARY KEY,
++    customer_id BIGINT NOT NULL REFERENCES customers (id),
++    order_id    BIGINT NOT NULL REFERENCES orders (id),
++    amount      INT NOT NULL,
++    status      TEXT NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS payments_customer_id_idx ON payments (customer_id);
++
++INSERT INTO orders (id, customer_id, placed_at)
++SELECT o, o % 20 + 1, TIMESTAMPTZ '2026-01-01T00:00:00Z' + make_interval(mins => o)
++FROM generate_series(201, 50200) AS o
++ON CONFLICT DO NOTHING;
++
++INSERT INTO payments (id, customer_id, order_id, amount, status)
++SELECT o.id, o.customer_id, o.id, (o.id * 37) % 1000 + 1, (ARRAY['paid', 'pending', 'refunded'])[o.id % 3 + 1]
++FROM orders o
++ON CONFLICT DO NOTHING;

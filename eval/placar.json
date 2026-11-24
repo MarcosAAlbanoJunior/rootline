@@ -1,31 +1,39 @@
 {
   "detectors_only": {
     "cause": {
-      "hits": 6,
-      "total": 6
+      "hits": 7,
+      "total": 7
     },
     "line": {
-      "hits": 6,
-      "total": 6
+      "hits": 7,
+      "total": 7
     },
     "commit": {
-      "hits": 6,
-      "total": 6
+      "hits": 7,
+      "total": 7
     },
     "strict": {
-      "hits": 6,
-      "total": 6
+      "hits": 7,
+      "total": 7
     },
     "line_levels": {
-      "level_1": 6,
+      "level_1": 7,
       "level_2": 0,
       "none": 0
     },
     "detector_false_positive": {
       "hits": 0,
-      "total": 1
+      "total": 2
     },
     "scenarios": {
+      "idx-basic": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 1,
+        "false_positive": false
+      },
       "n1-basic": {
         "cause": true,
         "line": true,
