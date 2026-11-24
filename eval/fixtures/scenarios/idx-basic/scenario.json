@@ -1,0 +1,25 @@
+{
+  "name": "idx-basic",
+  "assumption": "a causa de uma regressão está em queries repetidas: aqui cada query roda uma vez por requisição, e a nova lê payments inteira por order_id, coluna sem índice, numa tabela de 50 mil linhas; na mesma rota, um total com amount > $1 também faz Seq Scan, mas pouco seletivo, e não é causa",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "missing_index",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/payments.(*Repository).PaymentOfOrder",
+    "target": "payments",
+    "file": "demo-app/internal/payments/repository.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "distractors": [
+    {
+      "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/payments.(*Repository).LargePaymentsTotal",
+      "file": "demo-app/internal/payments/repository.go",
+      "marker": " // rootline:distractor"
+    }
+  ],
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/balance", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/balance", "weight": 1}]}
+}

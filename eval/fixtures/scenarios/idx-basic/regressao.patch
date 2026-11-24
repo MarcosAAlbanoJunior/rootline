@@ -1,0 +1,84 @@
+diff --git a/demo-app/internal/payments/repository.go b/demo-app/internal/payments/repository.go
+index b6471a5..2ea369b 100644
+--- a/demo-app/internal/payments/repository.go
++++ b/demo-app/internal/payments/repository.go
+@@ -38,6 +38,24 @@ func (r *Repository) RecentByCustomer(ctx context.Context, customerID int64) ([]
+ 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Payment])
+ }
+ 
++// LatestOrderID returns the id of the customer's most recent order.
++func (r *Repository) LatestOrderID(ctx context.Context, customerID int64) (int64, error) {
++	rows, err := r.db.Query(ctx, `SELECT id FROM orders WHERE customer_id = $1 ORDER BY id DESC LIMIT 1`, customerID)
++	if err != nil {
++		return 0, err
++	}
++	return pgx.CollectExactlyOneRow(rows, pgx.RowTo[int64])
++}
++
++// PaymentOfOrder returns the payments of one order.
++func (r *Repository) PaymentOfOrder(ctx context.Context, orderID int64) ([]Payment, error) {
++	rows, err := r.db.Query(ctx, `SELECT id, amount, status FROM payments WHERE order_id = $1`, orderID) // rootline:answer
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Payment])
++}
++
+ // LargePaymentsTotal sums every payment above threshold, across all customers.
+ func (r *Repository) LargePaymentsTotal(ctx context.Context, threshold int) (int64, error) {
+ 	rows, err := r.db.Query(ctx, `SELECT coalesce(sum(amount), 0) FROM payments WHERE amount > $1`, threshold)
+diff --git a/demo-app/internal/payments/service.go b/demo-app/internal/payments/service.go
+index 270a46a..c2437c1 100644
+--- a/demo-app/internal/payments/service.go
++++ b/demo-app/internal/payments/service.go
+@@ -5,16 +5,20 @@ import "context"
+ // largePayment is the amount above which a payment counts as large.
+ const largePayment = 900
+ 
+-// Balance is a customer's recent payments and the platform's large-payments total.
++// Balance is a customer's recent payments, the payments of their latest order and the platform's
++// large-payments total.
+ type Balance struct {
+-	Recent     []Payment `json:"recent"`
+-	LargeTotal int64     `json:"large_total"`
++	Recent      []Payment `json:"recent"`
++	LatestOrder []Payment `json:"latest_order"`
++	LargeTotal  int64     `json:"large_total"`
+ }
+ 
+ // Store is what the service needs from the repository.
+ type Store interface {
+ 	RecentByCustomer(ctx context.Context, customerID int64) ([]Payment, error)
+ 	LargePaymentsTotal(ctx context.Context, threshold int) (int64, error)
++	LatestOrderID(ctx context.Context, customerID int64) (int64, error)
++	PaymentOfOrder(ctx context.Context, orderID int64) ([]Payment, error)
+ }
+ 
+ // Service builds a customer's balance.
+@@ -27,15 +31,24 @@ func NewService(store Store) *Service {
+ 	return &Service{store: store}
+ }
+ 
+-// Balance reads the customer's recent payments and the large-payments total.
++// Balance reads the customer's recent payments, the payments of their latest order and the
++// large-payments total.
+ func (s *Service) Balance(ctx context.Context, customerID int64) (Balance, error) {
+ 	recent, err := s.store.RecentByCustomer(ctx, customerID)
+ 	if err != nil {
+ 		return Balance{}, err
+ 	}
++	orderID, err := s.store.LatestOrderID(ctx, customerID)
++	if err != nil {
++		return Balance{}, err
++	}
++	latest, err := s.store.PaymentOfOrder(ctx, orderID)
++	if err != nil {
++		return Balance{}, err
++	}
+ 	total, err := s.store.LargePaymentsTotal(ctx, largePayment)
+ 	if err != nil {
+ 		return Balance{}, err
+ 	}
+-	return Balance{Recent: recent, LargeTotal: total}, nil
++	return Balance{Recent: recent, LatestOrder: latest, LargeTotal: total}, nil
+ }
