@@ -3,6 +3,7 @@ package detector_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
@@ -45,7 +46,7 @@ func singleQuery(n, with int) [][]trace.Span {
 func TestDetectMissingIndex_SelectiveSeqScanOnALargeTableIsACandidate(t *testing.T) {
 	plans := plansFor(scanPlan("Seq Scan", "orders", 10, filter), 20000)
 
-	cands, err := detector.DetectMissingIndex(loopAtService, plans, "abc1234", singleQuery(4, 4))
+	cands, _, err := detector.DetectMissingIndex(loopAtService, plans, "abc1234", singleQuery(4, 4))
 
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +87,7 @@ func TestDetectMissingIndex_NotACandidate(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cands, err := detector.DetectMissingIndex(fakeEnv{}, plansFor(tc.plan, tc.reltuples), "abc1234", singleQuery(4, 4))
+			cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plansFor(tc.plan, tc.reltuples), "abc1234", singleQuery(4, 4))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,7 +104,7 @@ func TestDetectMissingIndex_SeqScanNestedUnderAJoinIsFound(t *testing.T) {
 		{"Node Type":"Seq Scan","Relation Name":"orders","Plan Rows":10,"Filter":"(customer_id = $1)"}]}}]`)
 	plans := fakePlans{ordersQuery: {Plan: plan, RelTuples: map[string]float64{"orders": 50000, "customers": 20000}}}
 
-	cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+	cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
 
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +125,7 @@ func TestDetectMissingIndex_UsesTheN1AffectedTraceMinimums(t *testing.T) {
 		{8, 3, 0}, // below MinAffectedRatio
 	}
 	for _, tc := range tests {
-		cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(tc.n, tc.with))
+		cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(tc.n, tc.with))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +136,7 @@ func TestDetectMissingIndex_UsesTheN1AffectedTraceMinimums(t *testing.T) {
 }
 
 func TestDetectMissingIndex_QueryWithoutPlanIsSkipped(t *testing.T) {
-	cands, err := detector.DetectMissingIndex(fakeEnv{}, fakePlans{}, "abc1234", singleQuery(4, 4))
+	cands, _, err := detector.DetectMissingIndex(fakeEnv{}, fakePlans{}, "abc1234", singleQuery(4, 4))
 	if err != nil || len(cands) != 0 {
 		t.Fatalf("got %v, %v; want no candidates and no error", cands, err)
 	}
@@ -148,7 +149,7 @@ func TestDetectMissingIndex_PrepareSpansAreNotCounted(t *testing.T) {
 		id := fmt.Sprintf("tr%d", i)
 		trs = append(trs, []trace.Span{dbSpan(id, id+"-p", "root", 0, ordersQuery, 0, phase("prepare"))})
 	}
-	cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", trs)
+	cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", trs)
 	if err != nil || len(cands) != 0 {
 		t.Fatalf("got %v, %v; want no candidates from prepare spans", cands, err)
 	}
@@ -179,7 +180,7 @@ func TestDetectMissingIndex_ParallelSeqScanUsesTheGatherTotal(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			plans := plansFor(gatherPlan(tc.gatherRows, tc.workerRows), 100000)
-			cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+			cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -199,7 +200,7 @@ func TestDetectMissingIndex_ParallelSeqScanUsesTheGatherTotal(t *testing.T) {
 
 func TestDetectMissingIndex_FindingCarriesTheRawFilterAndTheGenericMark(t *testing.T) {
 	plans := plansFor(scanPlan("Seq Scan", "orders", 10, `,"Filter":"((customer_id = $1) AND (status = $2))"`), 20000)
-	cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+	cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
 	if err != nil || len(cands) != 1 {
 		t.Fatalf("got %v, %v", cands, err)
 	}
@@ -237,8 +238,55 @@ func TestDetectMissingIndex_ParallelSeqScanBelowAPartialAggregateIsNotJudged(t *
 		{"Node Type":"Gather","Plan Rows":2,"Plans":[
 			{"Node Type":"Partial Aggregate","Plan Rows":1,"Plans":[
 				{"Node Type":"Parallel Seq Scan","Relation Name":"orders","Plan Rows":40000,"Filter":"(amount > $1)"}]}]}]}}]`)
-	cands, err := detector.DetectMissingIndex(fakeEnv{}, plansFor(plan, 100000), "abc1234", singleQuery(4, 4))
+	cands, _, err := detector.DetectMissingIndex(fakeEnv{}, plansFor(plan, 100000), "abc1234", singleQuery(4, 4))
 	if err != nil || len(cands) != 0 {
 		t.Fatalf("got %v, %v; want no candidate (the Gather estimate is the aggregate's)", cands, err)
+	}
+}
+
+func TestDetectMissingIndex_ReportsEachSkippedQueryOnceWithItsReason(t *testing.T) {
+	insert := "INSERT INTO audit (id) VALUES ($1)"
+	plans := fakePlans{insert: {Unexplainable: "not a single SELECT"}}
+	var trs [][]trace.Span
+	for i := 0; i < 4; i++ {
+		id := fmt.Sprintf("tr%d", i)
+		trs = append(trs, []trace.Span{
+			dbSpan(id, id+"-a", "root", 0, ordersQuery, 1),
+			dbSpan(id, id+"-b", "root", 5, ordersQuery, 1),
+			dbSpan(id, id+"-c", "root", 10, insert, 1),
+		})
+	}
+
+	_, skipped, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", trs)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "[{" + ordersQuery + " no recorded plan} {" + insert + " not a single SELECT}]"
+	if got := fmt.Sprint(skipped); got != want {
+		t.Fatalf("skipped = %s, want %s", got, want)
+	}
+}
+
+func TestDetectMissingIndex_UnreadablePlanIsSkippedNotAnError(t *testing.T) {
+	plans := fakePlans{ordersQuery: {Plan: json.RawMessage(`{"Plan":{"Node Type":"Seq Scan"}}`)}}
+	cands, skipped, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+	if err != nil || len(cands) != 0 {
+		t.Fatalf("cands %v, err %v; want none and no error", cands, err)
+	}
+	if len(skipped) != 1 || skipped[0].Query != ordersQuery || !strings.HasPrefix(skipped[0].Reason, "unreadable plan: ") {
+		t.Fatalf("skipped = %+v, want the query with 'unreadable plan:'", skipped)
+	}
+}
+
+func TestDetectMissingIndex_SpanWithEmptyQueryTextIsIgnored(t *testing.T) {
+	var trs [][]trace.Span
+	for i := 0; i < 4; i++ {
+		id := fmt.Sprintf("tr%d", i)
+		trs = append(trs, []trace.Span{dbSpan(id, id+"-q", "root", 0, "  ", 1)})
+	}
+	_, skipped, err := detector.DetectMissingIndex(fakeEnv{}, fakePlans{}, "abc1234", trs)
+	if err != nil || len(skipped) != 0 {
+		t.Fatalf("skipped %v, err %v; want nothing", skipped, err)
 	}
 }
