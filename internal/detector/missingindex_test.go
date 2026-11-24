@@ -25,7 +25,7 @@ func scanPlan(node, table string, rows float64, extra string) json.RawMessage {
 const filter = `,"Filter":"(customer_id = $1)"`
 
 func plansFor(plan json.RawMessage, reltuples float64) fakePlans {
-	return fakePlans{ordersQuery: {Plan: plan, RelTuples: map[string]float64{"orders": reltuples}}}
+	return fakePlans{ordersQuery: {Plan: plan, RelTuples: map[string]float64{"orders": reltuples}, Generic: true}}
 }
 
 // singleQuery builds n traces, `with` of which run ordersQuery once.
@@ -158,5 +158,87 @@ func TestDetect_NPlusOneCandidatesHaveTheirType(t *testing.T) {
 	c := mustOne(t, traces(4, 4, healthy))
 	if c.Type != detector.TypeNPlusOne || c.Target != "" {
 		t.Fatalf("got type %q target %q, want n_plus_one and no target", c.Type, c.Target)
+	}
+}
+
+func gatherPlan(gatherRows, workerRows float64) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`[{"Plan":{"Node Type":"Gather","Plan Rows":%v,"Workers Planned":2,"Plans":[
+		{"Node Type":"Parallel Seq Scan","Relation Name":"orders","Plan Rows":%v,"Filter":"(customer_id = $1)"}]}}]`,
+		gatherRows, workerRows))
+}
+
+func TestDetectMissingIndex_ParallelSeqScanUsesTheGatherTotal(t *testing.T) {
+	tests := []struct {
+		name                   string
+		gatherRows, workerRows float64
+		want                   bool
+	}{
+		{"selective in total", 90, 38, true},
+		{"not selective in total although selective per worker", 1500, 625, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			plans := plansFor(gatherPlan(tc.gatherRows, tc.workerRows), 100000)
+			cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(cands) == 1; got != tc.want {
+				t.Fatalf("candidate: %v, want %v", got, tc.want)
+			}
+			if !tc.want {
+				return
+			}
+			p := cands[0].Plan
+			if p.NodeType != "Parallel Seq Scan" || p.PlanRows != tc.gatherRows || p.Selectivity != tc.gatherRows/100000 {
+				t.Errorf("finding = %+v, want the Gather estimate", p)
+			}
+		})
+	}
+}
+
+func TestDetectMissingIndex_FindingCarriesTheRawFilterAndTheGenericMark(t *testing.T) {
+	plans := plansFor(scanPlan("Seq Scan", "orders", 10, `,"Filter":"((customer_id = $1) AND (status = $2))"`), 20000)
+	cands, err := detector.DetectMissingIndex(fakeEnv{}, plans, "abc1234", singleQuery(4, 4))
+	if err != nil || len(cands) != 1 {
+		t.Fatalf("got %v, %v", cands, err)
+	}
+	p := cands[0].Plan
+	if p.Filter != "((customer_id = $1) AND (status = $2))" || !p.GenericPlan {
+		t.Errorf("finding = %+v", p)
+	}
+	if fmt.Sprint(p.FilterColumns) != "[customer_id status]" {
+		t.Errorf("columns = %q, want [customer_id status]", p.FilterColumns)
+	}
+	if cands[0].Target != "orders" {
+		t.Errorf("target = %q, want only the table", cands[0].Target)
+	}
+}
+
+func TestFilterColumns_OnlyColumnEqualsParameter(t *testing.T) {
+	tests := []struct{ filter, want string }{
+		{"(customer_id = $1)", "[customer_id]"},
+		{"((customer_id = $1) AND (status = $2))", "[customer_id status]"},
+		{"((o.customer_id)::text = $1)", "[]"},
+		{"(amount > $1)", "[]"},
+		{"(customer_id = 42)", "[]"},
+		{"((customer_id = $1) OR (customer_id = $2))", "[customer_id]"},
+		{"", "[]"},
+	}
+	for _, tc := range tests {
+		if got := fmt.Sprint(detector.FilterColumns(tc.filter)); got != tc.want {
+			t.Errorf("FilterColumns(%q) = %s, want %s", tc.filter, got, tc.want)
+		}
+	}
+}
+
+func TestDetectMissingIndex_ParallelSeqScanBelowAPartialAggregateIsNotJudged(t *testing.T) {
+	plan := json.RawMessage(`[{"Plan":{"Node Type":"Finalize Aggregate","Plan Rows":1,"Plans":[
+		{"Node Type":"Gather","Plan Rows":2,"Plans":[
+			{"Node Type":"Partial Aggregate","Plan Rows":1,"Plans":[
+				{"Node Type":"Parallel Seq Scan","Relation Name":"orders","Plan Rows":40000,"Filter":"(amount > $1)"}]}]}]}}]`)
+	cands, err := detector.DetectMissingIndex(fakeEnv{}, plansFor(plan, 100000), "abc1234", singleQuery(4, 4))
+	if err != nil || len(cands) != 0 {
+		t.Fatalf("got %v, %v; want no candidate (the Gather estimate is the aggregate's)", cands, err)
 	}
 }

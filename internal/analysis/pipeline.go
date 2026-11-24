@@ -134,6 +134,7 @@ func causeEvidence(id string, c detector.Candidate) any {
 		return QueryPlanEvidence{
 			ID: id, Kind: "query_plan", Query: c.Query, NodeType: c.Plan.NodeType, Table: c.Plan.Table,
 			RelTuples: c.Plan.RelTuples, PlanRows: c.Plan.PlanRows, Selectivity: c.Plan.Selectivity,
+			Filter: c.Plan.Filter, FilterColumns: c.Plan.FilterColumns, GenericPlan: c.Plan.GenericPlan,
 			TracesAffected: c.TracesAffected, TracesTotal: c.TracesTotal, SampleTraceID: c.SampleTraceID,
 		}
 	}

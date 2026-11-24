@@ -20,7 +20,7 @@ func TestReadFile_ServesThePlanAndTableSizesOfAVersion(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("found %v, err %v", found, err)
 	}
-	if !strings.Contains(string(p.Plan), `"Seq Scan"`) || p.RelTuples["orders"] != 50000 || p.Unexplainable != "" {
+	if !strings.Contains(string(p.Plan), `"Seq Scan"`) || p.RelTuples["orders"] != 50000 || !p.Generic || p.Unexplainable != "" {
 		t.Errorf("got %+v", p)
 	}
 	other, _, _ := plans.Plan("ba5e123", ordersQuery)
