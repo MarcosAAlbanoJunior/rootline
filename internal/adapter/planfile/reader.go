@@ -20,6 +20,7 @@ type Line struct {
 	Query         string             `json:"query"`
 	Plan          json.RawMessage    `json:"plan,omitempty"`
 	RelTuples     map[string]float64 `json:"reltuples,omitempty"`
+	GenericPlan   bool               `json:"generic_plan,omitempty"`
 	Unexplainable string             `json:"unexplainable,omitempty"`
 }
 
@@ -58,7 +59,9 @@ func Read(r io.Reader) (*Plans, error) {
 			if l.Version == "" || l.Query == "" {
 				return nil, fmt.Errorf("planfile: line %d: version and query are required", n)
 			}
-			p.byKey[key{l.Version, l.Query}] = detector.QueryPlan{Plan: l.Plan, RelTuples: l.RelTuples, Unexplainable: l.Unexplainable}
+			p.byKey[key{l.Version, l.Query}] = detector.QueryPlan{
+				Plan: l.Plan, RelTuples: l.RelTuples, Generic: l.GenericPlan, Unexplainable: l.Unexplainable,
+			}
 		}
 		if errors.Is(err, io.EOF) {
 			return p, nil

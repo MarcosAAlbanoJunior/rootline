@@ -1,4 +1,4 @@
-{"version":"bad1234","query":"SELECT id FROM orders WHERE customer_id = $1","plan":[{"Plan":{"Node Type":"Seq Scan","Relation Name":"orders","Plan Rows":10,"Filter":"(customer_id = $1)"}}],"reltuples":{"orders":50000}}
+{"version":"bad1234","query":"SELECT id FROM orders WHERE customer_id = $1","plan":[{"Plan":{"Node Type":"Seq Scan","Relation Name":"orders","Plan Rows":10,"Filter":"(customer_id = $1)"}}],"reltuples":{"orders":50000},"generic_plan":true}
 {"version":"bad1234","query":"INSERT INTO orders (id) VALUES ($1)","unexplainable":"not a single SELECT"}
 
 {"version":"ba5e123","query":"SELECT id FROM orders WHERE customer_id = $1","plan":[{"Plan":{"Node Type":"Index Scan","Relation Name":"orders","Plan Rows":10}}],"reltuples":{"orders":50000}}

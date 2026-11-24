@@ -103,17 +103,21 @@ type RepeatedQueryEvidence struct {
 // QueryPlanEvidence is the plan node behind a missing-index candidate: a sequential scan through a
 // selective filter on a large table (ADR-0023). All numbers are planner estimates.
 type QueryPlanEvidence struct {
-	ID             string  `json:"id"`
-	Kind           string  `json:"kind"`
-	Query          string  `json:"query"`
-	NodeType       string  `json:"node_type"`
-	Table          string  `json:"table"`
-	RelTuples      float64 `json:"reltuples"`
-	PlanRows       float64 `json:"plan_rows"`
-	Selectivity    float64 `json:"selectivity"`
-	TracesAffected int     `json:"traces_affected"`
-	TracesTotal    int     `json:"traces_total"`
-	SampleTraceID  string  `json:"sample_trace_id"`
+	ID          string  `json:"id"`
+	Kind        string  `json:"kind"`
+	Query       string  `json:"query"`
+	NodeType    string  `json:"node_type"`
+	Table       string  `json:"table"`
+	RelTuples   float64 `json:"reltuples"`
+	PlanRows    float64 `json:"plan_rows"`
+	Selectivity float64 `json:"selectivity"`
+	Filter      string  `json:"filter"`
+	// FilterColumns is a best effort over Filter, only "column = $n"; it is not part of the target.
+	FilterColumns  []string `json:"filter_columns"`
+	GenericPlan    bool     `json:"generic_plan"` // the plan was made for any parameter value
+	TracesAffected int      `json:"traces_affected"`
+	TracesTotal    int      `json:"traces_total"`
+	SampleTraceID  string   `json:"sample_trace_id"`
 }
 
 // StackTouchEvidence is a commit that changed a function on the candidate's stack.

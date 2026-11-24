@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/analysis"
@@ -19,6 +20,7 @@ func (f fakePlans) Plan(_, q string) (detector.QueryPlan, bool, error) {
 var seqScanOnOrders = fakePlans{orders: {
 	Plan:      json.RawMessage(`[{"Plan":{"Node Type":"Seq Scan","Relation Name":"orders","Plan Rows":10,"Filter":"(customer_id = $1)"}}]`),
 	RelTuples: map[string]float64{"orders": 50000},
+	Generic:   true,
 }}
 
 // singleQueryTrace runs the orders query once, with no repetition.
@@ -80,6 +82,9 @@ func TestAnalyze_SelectiveSeqScanBecomesAMissingIndexCauseWithTheTableAsTarget(t
 	if plan["query"] != orders || plan["node_type"] != "Seq Scan" || plan["table"] != "orders" ||
 		plan["reltuples"] != 50000.0 || plan["plan_rows"] != 10.0 || plan["selectivity"] != 10.0/50000 {
 		t.Errorf("query_plan evidence = %v", plan)
+	}
+	if plan["filter"] != "(customer_id = $1)" || fmt.Sprint(plan["filter_columns"]) != "[customer_id]" || plan["generic_plan"] != true {
+		t.Errorf("query_plan evidence = %v, want the raw filter, its columns and the generic mark", plan)
 	}
 }
 
