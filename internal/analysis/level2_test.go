@@ -33,7 +33,7 @@ func (r routeIndex) FindRouteHandler(sha, method, route string) (string, string,
 
 func analyze(t *testing.T, idx analysis.CodeIndex, g analysis.Git, src source) map[string]any {
 	t.Helper()
-	res, err := analysis.Analyze(src, idx, g, symptom)
+	res, err := analysis.Analyze(src, idx, g, nil, symptom)
 	if err != nil {
 		t.Fatal(err)
 	}

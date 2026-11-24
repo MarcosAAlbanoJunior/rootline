@@ -62,7 +62,7 @@ func TestRecordAnalyzeScore_N1BasicEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	git := gitcli.New(filepath.Join(out, "repo"))
-	res, err := analysis.Analyze(fileSource(spans), goindex.New(git), git, analysis.Symptom{
+	res, err := analysis.Analyze(fileSource(spans), goindex.New(git), git, nil, analysis.Symptom{
 		Service:         "demo-app",
 		Operation:       trace.Operation{Method: "GET", Route: "/customers/{id}/orders", RouteSource: "span_name"},
 		BadVersion:      shaOf["regressao"],

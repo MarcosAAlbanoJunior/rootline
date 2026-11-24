@@ -48,13 +48,15 @@ type Env interface {
 	InLoop(sha, file string, line int) (bool, error)
 }
 
-// Location is a level-1 code location.
+// Location is a level-1 code location. LoopChecked says whether the strategy looked for a loop;
+// InLoop is meaningful only when it did (ADR-0024).
 type Location struct {
-	Level    int
-	Function string
-	File     string
-	Line     int
-	InLoop   bool
+	Level       int
+	Function    string
+	File        string
+	Line        int
+	InLoop      bool
+	LoopChecked bool
 }
 
 // StackFrame is one entry of rootline.app_stack. File is module-relative.
@@ -63,8 +65,20 @@ type StackFrame struct {
 	Line           int
 }
 
-// Candidate is a root-cause candidate of type N+1.
+// Cause types.
+const (
+	TypeNPlusOne     = "n_plus_one"
+	TypeMissingIndex = "missing_index"
+)
+
+// Candidate is a root-cause candidate. The fields after TracesTotal describe the N+1 repetition and
+// are zero in other types; Plan is set only in missing-index candidates.
 type Candidate struct {
+	Type string
+	// Target is what the cause points at besides the function, when the type has one and it comes
+	// from a structured field (ADR-0026): the table in a missing index; empty in an N+1.
+	Target              string
+	Plan                *PlanFinding
 	Query               string
 	Location            *Location
 	LocationReason      string
@@ -168,6 +182,7 @@ func Detect(env Env, sha string, traces [][]trace.Span) ([]Candidate, []Discarde
 func buildCandidate(a *candAgg, affected, total int) Candidate {
 	sample := a.occs[0]
 	c := Candidate{
+		Type:                 TypeNPlusOne,
 		Query:                a.key.query,
 		LocationReason:       a.reason,
 		TracesAffected:       affected,

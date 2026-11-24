@@ -1,6 +1,9 @@
 package analysis
 
-import "github.com/MarcosAAlbanoJunior/rootline/internal/trace"
+import (
+	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
+	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
+)
 
 // TraceSource provides the recorded spans.
 type TraceSource interface {
@@ -26,4 +29,11 @@ type Git interface {
 // Analyze uses it only when the index implements it and level 1 is unavailable.
 type RouteLocator interface {
 	FindRouteHandler(sha, method, route string) (function, file string, found bool, err error)
+}
+
+// Explainer gives the execution plan of a normalized query at a version, with the estimated size of
+// the tables in it (ADR-0023). found is false when the query has no recorded plan. The recorded
+// adapter reads them from a plans.jsonl (ADR-0025).
+type Explainer interface {
+	Plan(sha, query string) (plan detector.QueryPlan, found bool, err error)
 }

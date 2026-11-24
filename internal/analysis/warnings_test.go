@@ -20,7 +20,7 @@ type errTest string
 func (e errTest) Error() string { return string(e) }
 
 func TestResolveFailureIsReportedInWarningsAndDropsToNoLocation(t *testing.T) {
-	res, err := analysis.Analyze(allSpans(4, 4, badTrace), fakeIndex{}, brokenResolveGit{}, symptom)
+	res, err := analysis.Analyze(allSpans(4, 4, badTrace), fakeIndex{}, brokenResolveGit{}, nil, symptom)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func (noLoopIndex) InLoop(_, _ string, _ int) (bool, error) { return false, nil 
 // loop_not_found once in its warnings; with the loop found, the warning is absent.
 func TestLoopNotFoundReachesTheResultWarningsOnce(t *testing.T) {
 	const want = "loop_not_found: no app_stack frame inside a loop (2 frames)"
-	res, err := analysis.Analyze(allSpans(4, 4, badTrace), noLoopIndex{}, fakeGit{}, symptom)
+	res, err := analysis.Analyze(allSpans(4, 4, badTrace), noLoopIndex{}, fakeGit{}, nil, symptom)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestLoopNotFoundReachesTheResultWarningsOnce(t *testing.T) {
 		t.Fatalf("location = %+v, want level 1 with in_loop false", l)
 	}
 
-	found, err := analysis.Analyze(allSpans(4, 4, badTrace), fakeIndex{}, fakeGit{}, symptom)
+	found, err := analysis.Analyze(allSpans(4, 4, badTrace), fakeIndex{}, fakeGit{}, nil, symptom)
 	if err != nil {
 		t.Fatal(err)
 	}
