@@ -29,6 +29,7 @@ type Commit struct{ Label, SHA string }
 type AnswerKey struct {
 	Cause       string       `json:"cause"`
 	Function    string       `json:"function"`
+	Target      string       `json:"target,omitempty"`
 	File        string       `json:"file"`
 	Marker      string       `json:"marker"`
 	CommitLabel string       `json:"commit_label"`
@@ -94,7 +95,7 @@ func Generate(opts Options) (Generated, error) {
 	}
 
 	out := Generated{RepoDir: repo, AnswerKey: AnswerKey{
-		Cause: sc.Answer.Cause, Function: sc.Answer.Function, File: sc.Answer.File,
+		Cause: sc.Answer.Cause, Function: sc.Answer.Function, Target: sc.Answer.Target, File: sc.Answer.File,
 		Marker: sc.Answer.Marker, CommitLabel: sc.Answer.Commit,
 	}}
 	foundAnswer := false

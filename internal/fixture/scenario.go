@@ -20,13 +20,32 @@ type ScenarioCommit struct {
 }
 
 // ScenarioAnswer is the answer key as written in scenario.json: everything but the line, which the
-// generator computes from the marker.
+// generator computes from the marker. Target is the cause target of the type (ADR-0026).
 type ScenarioAnswer struct {
 	Cause    string `json:"cause"`
 	Function string `json:"function"`
+	Target   string `json:"target,omitempty"`
 	File     string `json:"file"`
 	Marker   string `json:"marker"`
 	Commit   string `json:"commit"`
+}
+
+// causeHasTarget says, per cause type, whether it has a target (ADR-0026): the table of a missing
+// index; nothing in an N+1. A new type declares one or the other here.
+var causeHasTarget = map[string]bool{"n_plus_one": false, "missing_index": true}
+
+// validateTarget requires the target of a type that has one and refuses it in a type that has none.
+func (a ScenarioAnswer) validateTarget() error {
+	has, known := causeHasTarget[a.Cause]
+	switch {
+	case !known:
+		return fmt.Errorf("answer.cause %q is not a known cause type", a.Cause)
+	case has && a.Target == "":
+		return fmt.Errorf("answer.target is required for cause %s", a.Cause)
+	case !has && a.Target != "":
+		return fmt.Errorf("answer.target must be empty for cause %s, which has no target", a.Cause)
+	}
+	return nil
 }
 
 // ScenarioDistractor is a distractor as written in scenario.json: code that looks like a cause and
@@ -112,6 +131,9 @@ func LoadScenario(dir string) (Scenario, error) {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
 	}
 	if err := sc.validateSymptom(); err != nil {
+		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
+	}
+	if err := sc.Answer.validateTarget(); err != nil {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
 	}
 	if err := sc.validateDistractors(); err != nil {

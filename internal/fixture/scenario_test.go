@@ -187,3 +187,36 @@ func TestLoadScenario_InvalidDistractorIsAnErrorCitingItsIndex(t *testing.T) {
 		})
 	}
 }
+
+func scenarioJSONWithAnswer(answer string) string {
+	return `{"name":"n","assumption":"x","load":` + xLoad + `,"commits":[{"label":"referencia"},{"label":"regressao","patch":"r.patch"}],
+"answer":` + answer + `,
+"symptom":{"service":"s","method":"GET","route":"/x","route_source":"span_name","bad":"regressao","baseline":"referencia"}}`
+}
+
+func TestLoadScenario_MissingIndexAnswerCarriesTheTarget(t *testing.T) {
+	sc, err := loadScenarioJSON(t, scenarioJSONWithAnswer(
+		`{"cause":"missing_index","function":"f","file":"a.go","marker":"// m","commit":"regressao","target":"orders"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Answer.Target != "orders" {
+		t.Fatalf("target = %q, want orders", sc.Answer.Target)
+	}
+}
+
+func TestLoadScenario_MissingIndexAnswerWithoutTargetIsAnErrorCitingTarget(t *testing.T) {
+	_, err := loadScenarioJSON(t, scenarioJSONWithAnswer(
+		`{"cause":"missing_index","function":"f","file":"a.go","marker":"// m","commit":"regressao"}`))
+	if err == nil || !strings.Contains(err.Error(), "answer.target") {
+		t.Fatalf("err = %v, want an error citing answer.target", err)
+	}
+}
+
+func TestLoadScenario_NPlusOneAnswerWithATargetIsAnError(t *testing.T) {
+	_, err := loadScenarioJSON(t, scenarioJSONWithAnswer(
+		`{"cause":"n_plus_one","function":"f","file":"a.go","marker":"// m","commit":"regressao","target":"orders"}`))
+	if err == nil || !strings.Contains(err.Error(), "answer.target") {
+		t.Fatalf("err = %v, want an error citing answer.target (n_plus_one has no target)", err)
+	}
+}

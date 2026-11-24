@@ -1,15 +1,16 @@
 // Package evaluation scores analysis Results against the answer key of a recording and keeps the
-// scoreboard (ADR-0009). It depends only on the standard library.
+// scoreboard (ADR-0026). It depends only on the standard library.
 package evaluation
 
 import "fmt"
 
-// Key is the answer key of a scenario. CommitLabel "" means no commit is expected.
+// Key is the answer key of a scenario. CommitLabel "" means no commit is expected. Target is the
+// cause target of the type ("" when the type has none, as in an N+1; ADR-0026).
 type Key struct {
-	CauseType, Function, File string
-	Line                      int
-	CommitLabel               string
-	Distractors               []Distractor
+	CauseType, Function, Target, File string
+	Line                              int
+	CommitLabel                       string
+	Distractors                       []Distractor
 }
 
 // Distractor is code of the scenario that looks like a cause and is not, with its line at the bad
@@ -44,8 +45,9 @@ type Found struct {
 	HasCause    bool
 	CauseType   string
 	Function    string
-	HasLocation bool // level-1 location present
-	Level       int  // location level of the cause: 0 = absent, 1 or 2
+	Target      string // the cause target from a structured field of the Result
+	HasLocation bool   // level-1 location present
+	Level       int    // location level of the cause: 0 = absent, 1 or 2
 	File        string
 	Line        int
 	CommitSHA   string // "" = the Result has no commit
@@ -67,7 +69,10 @@ type Outcome struct {
 // ScoreOne scores one Result. shaToLabel is the manifest mapping from commit SHA to label.
 func ScoreOne(key Key, found Found, shaToLabel map[string]string) Outcome {
 	var o Outcome
-	o.Cause = found.HasCause && found.CauseType == key.CauseType && found.Function == key.Function
+	// ADR-0026: the Cause is the type, the function and the target of the type; an N+1 has no
+	// target, so both sides are empty.
+	o.Cause = found.HasCause && found.CauseType == key.CauseType && found.Function == key.Function &&
+		found.Target == key.Target
 	o.Line = found.HasCause && found.HasLocation && found.File == key.File && found.Line == key.Line
 	if found.HasCause {
 		o.LineLevel = found.Level
