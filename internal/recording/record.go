@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/otlpfile"
+	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/planfile"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/fixture"
 )
 
@@ -33,8 +35,9 @@ type RecordOptions struct {
 }
 
 // Record generates <OutDir>/repo, builds and runs every commit under the scenario's load, and
-// writes <OutDir>/traces.jsonl and <OutDir>/manifest.json. It always records from scratch and
-// fails if OutDir exists and is not empty.
+// writes <OutDir>/traces.jsonl, <OutDir>/plans.jsonl (the execution plans of each version's queries,
+// ADR-0025) and <OutDir>/manifest.json. It always records from scratch and fails if OutDir exists
+// and is not empty.
 func Record(ctx context.Context, opts RecordOptions) (err error) {
 	if opts.PostgresPort == 0 {
 		opts.PostgresPort = DefaultPostgresPort
@@ -84,19 +87,43 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 		}
 	}()
 
+	var traces bytes.Buffer
+	var plans []planfile.Line
 	for _, c := range gen.Commits {
 		if err := runVersion(ctx, opts, load, binaries[c.SHA], c.SHA); err != nil {
 			return fmt.Errorf("recording: version %s (%s): %w", c.Label, c.SHA, err)
 		}
+		// The plans come right after the version's load, before the next version changes the
+		// database, so the version's traces are taken out of the Collector now.
+		chunk, err := stack.takeTraces(ctx)
+		if err != nil {
+			return fmt.Errorf("recording: version %s (%s): %w", c.Label, c.SHA, err)
+		}
+		traces.Write(chunk)
+		spans, err := otlpfile.Read(bytes.NewReader(chunk))
+		if err == nil {
+			err = versionTraces(spans, c.SHA)
+		}
+		if err != nil {
+			return fmt.Errorf("recording: version %s (%s): %w", c.Label, c.SHA, err)
+		}
+		lines, err := explainVersion(ctx, stack.psql, c.SHA, spans)
+		if err != nil {
+			return fmt.Errorf("recording: plans of version %s (%s): %w", c.Label, c.SHA, err)
+		}
+		plans = append(plans, lines...)
 	}
-	if err := stack.flushCollector(ctx); err != nil {
+	if err := os.WriteFile(filepath.Join(opts.OutDir, "traces.jsonl"), traces.Bytes(), 0o644); err != nil {
 		return err
 	}
-	if err := copyFile(filepath.Join(stack.collectorOut, "traces.jsonl"), filepath.Join(opts.OutDir, "traces.jsonl")); err != nil {
-		return fmt.Errorf("recording: collector wrote no traces file: %w", err)
+	if err := writePlans(filepath.Join(opts.OutDir, "plans.jsonl"), plans); err != nil {
+		return err
 	}
-
-	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), buildManifest(sc, gen))
+	m := buildManifest(sc, gen)
+	if m.ServerVersion, err = serverVersion(ctx, stack.psql); err != nil {
+		return err
+	}
+	return WriteManifest(filepath.Join(opts.OutDir, "manifest.json"), m)
 }
 
 // buildManifest describes a recording: scenario, symptom, commits, answer key, seed and the
@@ -239,10 +266,24 @@ func (s *stack) waitPostgres(ctx context.Context) error {
 	return errors.New("recording: postgres did not become ready in 120s")
 }
 
-// flushCollector stops the Collector so its file exporter flushes the traces file.
-func (s *stack) flushCollector(ctx context.Context) error {
-	_, err := s.compose(ctx, "stop", "otelcol")
-	return err
+// takeTraces returns the traces the Collector received so far and empties its file: stopping the
+// Collector flushes the file exporter, and it is started again for the next version.
+func (s *stack) takeTraces(ctx context.Context) ([]byte, error) {
+	if _, err := s.compose(ctx, "stop", "otelcol"); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(s.collectorOut, "traces.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if _, err := s.compose(ctx, "start", "otelcol"); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (s *stack) down() error {
