@@ -260,7 +260,7 @@ código de cada versão do git, não da cópia de trabalho.
 ## Analisar
 
 ```sh
-go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@main
+go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.1.0
 rootline symptoms --traces traces.jsonl --repo .
 rootline analyze --traces traces.jsonl --repo . --service <seu-servico> \
   --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>
