@@ -175,8 +175,9 @@ func TestSymptomRegressionCheck_ReportsTheStatsAndTheLatencyRegression(t *testin
 func TestSymptomRegressionCheck_WithoutLatencyRegressionTheDetectorsStillRun(t *testing.T) {
 	var src source
 	for i := 0; i < 30; i++ {
-		src = append(src, badTrace(fmt.Sprintf("bad%02d", i))...)
-		src = append(src, healthyTrace(fmt.Sprintf("good%02d", i))...)
+		// Spread durations: 30 traces that all end together would be a ceiling.
+		src = append(src, lasting(1+float64(i)/10, badTrace)(fmt.Sprintf("bad%02d", i))...)
+		src = append(src, lasting(1+float64(i)/10, healthyTrace)(fmt.Sprintf("good%02d", i))...)
 	}
 	m := run(t, src, fakeGit{}, symptom)
 	c := check(t, m, "symptom_regression")
@@ -228,7 +229,7 @@ func TestChecks_ComeInAFixedOrder(t *testing.T) {
 	for _, c := range list(m, "checks") {
 		ids = append(ids, obj(t, c)["id"].(string))
 	}
-	want := "[symptom_regression error_rate caller_hook db_spans n_plus_one missing_index commit_correlation]"
+	want := "[symptom_regression error_rate truncated_traces caller_hook db_spans n_plus_one missing_index commit_correlation]"
 	if fmt.Sprint(ids) != want {
 		t.Errorf("checks = %v, want %s", ids, want)
 	}
