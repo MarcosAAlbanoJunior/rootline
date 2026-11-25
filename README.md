@@ -85,19 +85,20 @@ Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 6/6, 100% |
-| Linha | 6/6, 100% |
-| Commit | 6/6, 100% |
-| Estrito | 6/6, 100% |
-| Falso positivo de detector | 0/1, 0% |
+| Causa | 7/7, 100% |
+| Linha | 7/7, 100% |
+| Commit | 7/7, 100% |
+| Estrito | 7/7, 100% |
+| Falso positivo de detector | 0/2, 0% |
 
-Níveis da Linha: 1=6 2=0 ausente=0. O falso positivo de detector conta só os cenários com distrator, e
+Níveis da Linha: 1=7 2=0 ausente=0. O falso positivo de detector conta só os cenários com distrator, e
 para ele menos é melhor.
 
 Por cenário:
 
 | Cenário | Causa | Linha | Commit | Estrito | Nível | Falso positivo |
 |---|---|---|---|---|---|---|
+| idx-basic | ok | ok | ok | ok | 1 | não |
 | n1-basic | ok | ok | ok | ok | 1 | — |
 | n1-errgroup | ok | ok | ok | ok | 1 | — |
 | n1-helper | ok | ok | ok | ok | 1 | — |
