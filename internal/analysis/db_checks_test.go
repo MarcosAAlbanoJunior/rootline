@@ -114,3 +114,29 @@ func TestDBSpansCheck_ReportsTheIgnoredSpansBySystem(t *testing.T) {
 	contains(t, c, "reason", "redis: 4")
 	contains(t, c, "hint", "Only PostgreSQL")
 }
+
+func TestCallerHookCheck_WarnsWhenTheHookVersionIsIncompatible(t *testing.T) {
+	c := check(t, run(t, allSpans(4, 4, withHookVersion("0.2.0", badTrace)), fakeGit{}, symptom), "caller_hook")
+	wantStatus(t, c, analysis.CheckRan)
+	contains(t, c, "hint", "0.2.0 is incompatible")
+	contains(t, c, "hint", "0.1.x")
+}
+
+func TestCallerHookCheck_APatchOfTheExpectedHookVersionIsCompatible(t *testing.T) {
+	c := check(t, run(t, allSpans(4, 4, withHookVersion("0.1.3", badTrace)), fakeGit{}, symptom), "caller_hook")
+	contains(t, c, "reason", "hook version 0.1.3")
+	if c["hint"] != "" {
+		t.Errorf("hint = %q, want none for a compatible hook", c["hint"])
+	}
+}
+
+func TestCallerHookCheck_ANewerHookAsksToUpgradeRootline(t *testing.T) {
+	c := check(t, run(t, allSpans(4, 4, withHookVersion("0.2.0", badTrace)), fakeGit{}, symptom), "caller_hook")
+	contains(t, c, "hint", "upgrade rootline")
+}
+
+func TestCallerHookCheck_AnOlderHookAsksToUpdateTheHook(t *testing.T) {
+	c := check(t, run(t, allSpans(4, 4, withHookVersion("0.0.9", badTrace)), fakeGit{}, symptom), "caller_hook")
+	contains(t, c, "hint", "0.0.9 is incompatible")
+	contains(t, c, "hint", "go get github.com/MarcosAAlbanoJunior/rootline/hook@v0.1")
+}

@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
 )
@@ -149,5 +150,121 @@ func TestNewWithModule_EmptyModulePathWritesNothingAndDoesNotPanic(t *testing.T)
 
 	if a := attrMap(t, exp); len(a) != 0 {
 		t.Fatalf("expected no attributes with empty Main.Path, got %v", a)
+	}
+}
+
+// handlerCtx returns a context whose active span is a server span, as in an app whose pgx calls
+// carry no database instrumentation: the hook sees the HTTP handler's span.
+func handlerCtx(tp *sdktrace.TracerProvider) (context.Context, trace.Span) {
+	return tp.Tracer("test").Start(context.Background(), "GET /orders", trace.WithSpanKind(trace.SpanKindServer))
+}
+
+func TestHook_LeavesANonClientSpanAloneAndCountsIt(t *testing.T) {
+	tp, exp := newProvider()
+	h := callerhook.NewWithModule(testModule)
+
+	ctx, span := handlerCtx(tp)
+	ctx = h.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	h.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+	ctx = h.TracePrepareStart(ctx, nil, pgx.TracePrepareStartData{Name: "s", SQL: "SELECT 1"})
+	h.TracePrepareEnd(ctx, nil, pgx.TracePrepareEndData{})
+	span.End()
+
+	if a := attrMap(t, exp); len(a) != 0 {
+		t.Errorf("handler span got %v, want no attributes", a)
+	}
+	if got := h.Unannotated(); got != 2 {
+		t.Errorf("Unannotated() = %d, want 2", got)
+	}
+}
+
+func TestHook_AnnotatesAClientSpanWithItsVersion(t *testing.T) {
+	tp, exp := newProvider()
+	mt := newMulti(tp, testModule)
+
+	runQuery(parentCtx(tp), mt)
+
+	if got := attrMap(t, exp)["rootline.hook.version"].AsString(); got != callerhook.Version {
+		t.Errorf("rootline.hook.version = %q, want %q", got, callerhook.Version)
+	}
+}
+
+// A GORM plugin span is a client span that gets db.system only when the query ends, after the
+// hook ran; it must still be annotated.
+func TestHook_AnnotatesAClientSpanThatHasNoDBSystemYet(t *testing.T) {
+	tp, exp := newProvider()
+	h := callerhook.NewWithModule(testModule)
+
+	ctx, span := tp.Tracer("gorm").Start(parentCtx(tp), "gorm.Query", trace.WithSpanKind(trace.SpanKindClient))
+	ctx = h.TracePrepareStart(ctx, nil, pgx.TracePrepareStartData{Name: "s", SQL: "SELECT 1"})
+	h.TracePrepareEnd(ctx, nil, pgx.TracePrepareEndData{})
+	span.End()
+
+	a := attrMap(t, exp)
+	if a["rootline.db.phase"].AsString() != "prepare" || a["rootline.hook.version"].AsString() != callerhook.Version {
+		t.Errorf("attributes = %v, want the prepare phase and the hook version", a)
+	}
+	if got := h.Unannotated(); got != 0 {
+		t.Errorf("Unannotated() = %d, want 0", got)
+	}
+}
+
+// Without otelpgx (otelsql, GORM), pgx prepares a statement inside the query, on the same span:
+// the span stays a query span with its stack.
+func TestHook_APrepareInsideAQueryOnTheSameSpanKeepsTheQueryPhase(t *testing.T) {
+	tp, exp := newProvider()
+	h := callerhook.NewWithModule(testModule)
+
+	ctx, span := tp.Tracer("otelsql").Start(parentCtx(tp), "sql.conn.query", trace.WithSpanKind(trace.SpanKindClient))
+	ctx = h.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	pctx := h.TracePrepareStart(ctx, nil, pgx.TracePrepareStartData{Name: "s", SQL: "SELECT 1"})
+	h.TracePrepareEnd(pctx, nil, pgx.TracePrepareEndData{})
+	h.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+	span.End()
+
+	a := attrMap(t, exp)
+	if got := a["rootline.db.phase"].AsString(); got != "query" {
+		t.Errorf("rootline.db.phase = %q, want query", got)
+	}
+	if _, ok := a["rootline.app_stack"]; !ok {
+		t.Errorf("attributes = %v, want the app stack", a)
+	}
+}
+
+// otelpgx opens its own prepare span inside the query span: that child is a prepare span.
+func TestHook_APrepareSpanInsideAQueryIsStillAPrepare(t *testing.T) {
+	tp, exp := newProvider()
+	h := callerhook.NewWithModule(testModule)
+	tr := tp.Tracer("otelpgx")
+
+	qctx, qspan := tr.Start(parentCtx(tp), "query", trace.WithSpanKind(trace.SpanKindClient))
+	qctx = h.TraceQueryStart(qctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	pctx, pspan := tr.Start(qctx, "prepare", trace.WithSpanKind(trace.SpanKindClient))
+	h.TracePrepareStart(pctx, nil, pgx.TracePrepareStartData{Name: "s", SQL: "SELECT 1"})
+	pspan.End()
+	_ = qspan // left unended: only the prepare span is exported
+
+	if got := attrMap(t, exp)["rootline.db.phase"].AsString(); got != "prepare" {
+		t.Errorf("rootline.db.phase = %q, want prepare", got)
+	}
+}
+
+// opaqueSpan hides the SDK span's kind, like a span from another OpenTelemetry implementation.
+type opaqueSpan struct{ trace.Span }
+
+func TestHook_AnnotatesARecordingSpanWhoseKindCannotBeRead(t *testing.T) {
+	tp, exp := newProvider()
+	h := callerhook.NewWithModule(testModule)
+
+	ctx, span := tp.Tracer("vendor").Start(parentCtx(tp), "query", trace.WithSpanKind(trace.SpanKindClient))
+	ctx = trace.ContextWithSpan(ctx, opaqueSpan{span})
+	h.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	span.End()
+
+	if got := attrMap(t, exp)["rootline.db.phase"].AsString(); got != "query" {
+		t.Errorf("rootline.db.phase = %q, want query", got)
+	}
+	if got := h.Unannotated(); got != 0 {
+		t.Errorf("Unannotated() = %d, want 0", got)
 	}
 }

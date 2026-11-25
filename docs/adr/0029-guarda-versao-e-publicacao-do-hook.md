@@ -3,7 +3,7 @@ id: ADR-0029
 title: Anotar só spans de cliente de banco no hook, emitir a versão dele e publicá-lo por tag
 status: Aceito
 date: 2026-11-25
-summary: Complementa o ADR-0002. O hook só anota o span ativo quando ele é de cliente de banco e emite rootline.hook.version; os atributos são o contrato com o analyze. Publicação por tag hook/vX.Y.Z (primeira hook/v0.1.0); receitas de instalação num guia em docs/, verificadas pelo laboratório, sem módulo de exemplos.
+summary: Complementa o ADR-0002. O hook só anota o span ativo quando ele é de cliente (SpanKind Client) e emite rootline.hook.version; os atributos são o contrato com o analyze. Publicação por tag hook/vX.Y.Z (primeira hook/v0.1.0); receitas de instalação num guia em docs/, verificadas pelo laboratório, sem módulo de exemplos.
 modules: [hook, analysis, docs]
 ---
 
@@ -30,9 +30,14 @@ analista do piloto descobriu sozinho a receita do app dele.
 ## Decisão
 
 **Guarda.**
-- O hook só anota o span ativo quando ele é de cliente de banco: `SpanKind` Client e um atributo
-  `db.system` ou `db.system.name`.
-- Fora disso, o hook não anota nada e incrementa um contador consultável no `Hook`.
+- O hook só anota o span ativo quando ele é de cliente: `SpanKind` Client.
+- A guarda não exige `db.system` nem `db.system.name`. O plugin OpenTelemetry do GORM
+  (`gorm.io/plugin/opentelemetry`) abre o span como Client, mas só grava `db.system` no callback
+  `after`, depois que o pgx já chamou o hook. Exigir o atributo quebraria a receita do GORM
+  (revisão de 2026-11-25, achada ao implementar a guarda).
+- Fora disso, o hook não anota nada e incrementa um contador consultável no `Hook`. Um span cujo
+  tipo não dá para ler (de uma implementação do OpenTelemetry fora do SDK) é anotado: a guarda
+  só descarta o que se sabe não ser cliente.
 - A Verificação `caller_hook` (ADR-0027) mostra a fração de spans de banco com pilha, e a dica
   aponta para o guia.
 
@@ -62,6 +67,10 @@ analista do piloto descobriu sozinho a receita do app dele.
 
 ## Alternativas consideradas
 
+- **Guarda com `SpanKind` Client e `db.system` ou `db.system.name`.** Era a decisão original e
+  fecha também o caso de um span de cliente que não é de banco. Mas o GORM só grava `db.system`
+  depois da query, e um span de cliente HTTP ativo durante uma chamada do pgx é improvável.
+  Perdeu na revisão.
 - **Sem guarda, só documentar que precisa de instrumentação de banco.** Não muda código, mas o
   erro fica silencioso: spans HTTP anotados como banco confundem o detector. Perdeu.
 - **Módulo `hook/examples` com uma receita compilada por forma de conexão.** Daria garantia em CI,

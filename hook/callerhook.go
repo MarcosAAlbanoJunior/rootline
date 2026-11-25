@@ -1,6 +1,24 @@
 // Package callerhook is the Rootline caller hook (ADR-0002). It is a pgx.QueryTracer and
-// pgx.PrepareTracer meant to run after otelpgx inside a multitracer: it reads the span otelpgx
-// put in the context and annotates it with the application stack.
+// pgx.PrepareTracer meant to run after a database instrumentation (otelpgx, otelsql, the GORM
+// plugin) inside a multitracer: it reads the span that instrumentation put in the context and
+// annotates it with the application stack.
+//
+// It only annotates a client span (ADR-0029). Without a database instrumentation the active span
+// is the HTTP handler's or an internal one; the hook then writes nothing and counts the call in
+// Unannotated. A span whose kind cannot be read (an OpenTelemetry implementation other than the
+// SDK) is annotated, as before the guard.
+//
+// The attributes below are the contract with rootline analyze. Before 1.0, an incompatible change
+// to them bumps the minor of Version.
+//
+//   - rootline.db.phase: "query" or "prepare".
+//   - rootline.hook.version: Version.
+//   - rootline.app_stack: the application frames, innermost first, each
+//     "<function> <module-relative file>:<line>", at most MaxFrames entries and MaxStackBytes.
+//   - rootline.module.path: the main module path the files are relative to.
+//   - code.function.name, code.file.path, code.line.number: the innermost application frame.
+//
+// The stack attributes are only written on query spans that have at least one application frame.
 package callerhook
 
 import (
@@ -8,11 +26,16 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// Version is the hook version written in rootline.hook.version. It matches the hook/vX.Y.Z tag
+// the module is published under (ADR-0029).
+const Version = "0.1.0"
 
 const (
 	// MaxFrames is the maximum number of entries in rootline.app_stack.
@@ -27,6 +50,8 @@ const (
 type Hook struct {
 	modulePath string // debug.ReadBuildInfo().Main.Path
 	mainPkg    string // debug.ReadBuildInfo().Path (import path of package main)
+
+	unannotated atomic.Uint64
 }
 
 var (
@@ -55,12 +80,13 @@ func (h *Hook) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQuer
 	if h.modulePath == "" {
 		return ctx
 	}
-	span := trace.SpanFromContext(ctx)
-	if !span.IsRecording() {
+	span, ok := h.clientSpan(ctx)
+	if !ok {
 		return ctx
 	}
+	ctx = context.WithValue(ctx, queryKey{}, span)
 	frames := h.appFrames(captureStack(3))
-	attrs := []attribute.KeyValue{attribute.String("rootline.db.phase", "query")}
+	attrs := []attribute.KeyValue{attribute.String("rootline.db.phase", "query"), versionAttr}
 	if len(frames) > 0 {
 		inner := frames[0]
 		attrs = append(attrs,
@@ -75,6 +101,41 @@ func (h *Hook) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQuer
 	return ctx
 }
 
+var versionAttr = attribute.String("rootline.hook.version", Version)
+
+// Unannotated returns how many pgx calls found a recording span that is not a client span, and so
+// were left unannotated.
+
+// queryKey marks the context of a query the hook annotated. pgx prepares the statement inside the
+// query with that context; without otelpgx (otelsql, GORM) no prepare span is opened, and the
+// prepare must not relabel the query span.
+type queryKey struct{}
+
+func isQuerySpan(ctx context.Context, span trace.Span) bool {
+	q, ok := ctx.Value(queryKey{}).(trace.Span)
+	// Compared by span id: == on two spans of a non-comparable type would panic.
+	return ok && q.SpanContext().SpanID() == span.SpanContext().SpanID()
+}
+func (h *Hook) Unannotated() uint64 { return h.unannotated.Load() }
+
+// kinded is implemented by the OpenTelemetry SDK spans; trace.Span does not expose the kind.
+type kinded interface{ SpanKind() trace.SpanKind }
+
+// clientSpan returns the recording span in ctx when it is a client span. The guard is the kind
+// alone, not db.system: the GORM plugin sets db.system only after the query ran (ADR-0029). A span
+// whose kind cannot be read is accepted: the guard only rules out spans known not to be clients.
+func (h *Hook) clientSpan(ctx context.Context) (trace.Span, bool) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return nil, false
+	}
+	if k, ok := span.(kinded); ok && k.SpanKind() != trace.SpanKindClient {
+		h.unannotated.Add(1)
+		return nil, false
+	}
+	return span, true
+}
+
 // TraceQueryEnd implements pgx.QueryTracer.
 func (h *Hook) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
@@ -83,8 +144,8 @@ func (h *Hook) TracePrepareStart(ctx context.Context, _ *pgx.Conn, _ pgx.TracePr
 	if h.modulePath == "" {
 		return ctx
 	}
-	if span := trace.SpanFromContext(ctx); span.IsRecording() {
-		span.SetAttributes(attribute.String("rootline.db.phase", "prepare"))
+	if span, ok := h.clientSpan(ctx); ok && !isQuerySpan(ctx, span) {
+		span.SetAttributes(attribute.String("rootline.db.phase", "prepare"), versionAttr)
 	}
 	return ctx
 }
