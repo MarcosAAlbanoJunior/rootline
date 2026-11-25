@@ -7,16 +7,22 @@ função e a linha onde ela está e o commit que a introduziu.
 
 ## Comece aqui
 
-1. Instale o hook no seu serviço e grave as duas versões com o Collector, seguindo o
-   [guia de instrumentação](docs/guia-instrumentacao.md). Para experimentar sem um serviço seu, grave
-   um cenário do demo-app (precisa de Docker):
-   `go run ./cmd/rootline-eval record --scenario eval/fixtures/scenarios/n1-basic --source . --out out/n1-basic`.
-2. Ache a operação que regrediu: `go run ./cmd/rootline symptoms --traces out/n1-basic/traces.jsonl --repo out/n1-basic/repo`.
-   Ele sugere uma operação e imprime o `analyze` dela. Sem sugestão, pegue a operação na tabela e os SHAs no cabeçalho.
-3. Analise: `go run ./cmd/rootline analyze --traces out/n1-basic/traces.jsonl --repo out/n1-basic/repo --service demo-app --operation "GET /customers/{id}/orders" --bad-version <sha-ruim> --baseline-version <sha-bom>`.
-4. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. A seção **Checks**
+1. Instale o CLI (precisa de Go): `go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@main`.
+2. Instale o hook no seu serviço e grave as duas versões com o Collector, seguindo o
+   [guia de instrumentação](docs/guia-instrumentacao.md). Ele cobre também o serviço que roda em
+   contêiner.
+3. Ache a operação que regrediu, de dentro do repositório do serviço:
+   `rootline symptoms --traces traces.jsonl --repo .`. Ele sugere uma operação e imprime o `analyze`
+   dela. Sem sugestão, ele diz por quê; pegue a operação na tabela e os SHAs no cabeçalho.
+4. Analise: `rootline analyze --traces traces.jsonl --repo . --service <seu-servico> --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>`.
+5. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. A seção **Checks**
    diz o que foi verificado, o que foi pulado e, com uma dica, o que fazer. As
    [limitações atuais](docs/guia-instrumentacao.md#limitações-atuais) estão no guia.
+
+Para experimentar sem um serviço seu, com este repositório clonado e Docker, grave um cenário do
+demo-app e siga dos passos 3 a 5 com `--traces out/n1-basic/traces.jsonl --repo out/n1-basic/repo`
+e `--service demo-app`:
+`go run ./cmd/rootline-eval record --scenario eval/fixtures/scenarios/n1-basic --source . --out out/n1-basic`.
 
 ## Como funciona
 

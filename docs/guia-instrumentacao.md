@@ -204,8 +204,58 @@ Grave as duas versões no mesmo arquivo, uma de cada vez:
 3. Pare o Collector, para ele gravar o que ficou no lote.
 
 Aqueça o serviço e o banco antes de cada gravação: com o banco frio, a primeira versão parece mais
-lenta do que é. O `rootline symptoms` só compara uma operação com pelo menos 30 traces em cada
-versão.
+lenta do que é. O aquecimento pode ficar no arquivo, desde que seja igual nas duas versões. O
+`rootline symptoms` só compara uma operação com pelo menos 30 traces em cada versão.
+
+Aplique a mesma carga às duas versões, com a máquina sem outra carga pesada. Se a versão ruim
+gravar bem menos (ou bem mais) traces que a boa em quase todas as operações, o `symptoms` não sugere
+operação, porque a comparação entre elas deixa de valer
+([ADR-0030](adr/0030-regressao-symptoms-e-carga-desigual.md)).
+
+### Serviço em contêiner
+
+Suba o Collector com a configuração acima, salva em `otelcol.yaml`, e uma pasta de saída:
+
+```sh
+mkdir -p out && chmod 777 out   # o file exporter roda como uid 10001
+docker run -d --name rootline-col -p 4318:4318 \
+  -v "$PWD/otelcol.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+  -v "$PWD/out:/out" \
+  otel/opentelemetry-collector-contrib:0.165.0
+```
+
+Com SELinux (Fedora, RHEL), acrescente `:Z` aos dois volumes. Os traces saem em `out/traces.jsonl`.
+Pare o Collector com `docker stop rootline-col` depois da segunda versão.
+
+Dentro do contêiner do serviço, `localhost` é o próprio contêiner. Aponte o exporter para o host:
+
+```yaml
+services:
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318
+      SERVICE_VERSION: ${SERVICE_VERSION}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # necessário no Linux
+```
+
+O hook é uma mudança local, que não vai para o histórico. Para gravar as duas versões com ele:
+
+```sh
+git diff > ../rootline-hook.patch   # depois de instalar o hook na versão atual
+git stash
+git checkout <sha-bom>
+git apply ../rootline-hook.patch    # se o arquivo da conexão mudou, aplique a receita à mão
+SERVICE_VERSION=$(git rev-parse HEAD) docker compose up -d --build api
+# aqueça, aplique a carga e pare o serviço
+git checkout -- . && git checkout <sha-ruim> && git apply ../rootline-hook.patch
+SERVICE_VERSION=$(git rev-parse HEAD) docker compose up -d --build api
+# a mesma carga; depois pare o serviço e o Collector
+git checkout -- . && git checkout main && git stash pop
+```
+
+Na análise, o `--repo` é o repositório do serviço, limpo e com os dois commits. O `rootline` lê o
+código de cada versão do git, não da cópia de trabalho.
 
 ## Analisar
 
@@ -215,6 +265,9 @@ rootline symptoms --traces traces.jsonl --repo .
 rootline analyze --traces traces.jsonl --repo . --service <seu-servico> \
   --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>
 ```
+
+O `rootline` lê o hook da mesma linha de versão (o CLI 0.1.x lê o hook 0.1.x); a Verificação
+`caller_hook` avisa quando eles não combinam e diz qual atualizar.
 
 O `symptoms` lista as operações que regrediram e imprime o `analyze` pronto da sugerida. O
 `analyze` dá a causa ou `Inconclusive`, e a seção **Checks** diz o que foi verificado, o que foi
