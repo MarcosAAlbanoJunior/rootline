@@ -30,7 +30,7 @@ type SymptomsQuery struct {
 	Service, BaselineVersion, BadVersion string
 }
 
-// SymptomsReport compares every entry operation of a service between two versions (ADR-0028).
+// SymptomsReport compares every entry operation of a service between two versions (ADR-0030).
 type SymptomsReport struct {
 	Service         string   `json:"service"`
 	BaselineVersion string   `json:"baseline_version"`
@@ -38,9 +38,16 @@ type SymptomsReport struct {
 	VersionOrder    string   `json:"version_order"`
 	Notices         []string `json:"notices"`
 	// Generalized says that at least 75% of the operations with the minimum sample regressed
-	// together, which usually points to a saturated shared resource (ADR-0028).
-	Generalized bool               `json:"generalized"`
-	Operations  []OperationSymptom `json:"operations"`
+	// together, which usually points to a saturated shared resource (ADR-0030).
+	Generalized bool `json:"generalized"`
+	// MedianNRatio is the median n ratio of the operations with the minimum sample; nil without
+	// one.
+	MedianNRatio *float64 `json:"median_n_ratio"`
+	// UnevenLoad says that, with at least 3 operations with the minimum sample, the median n ratio
+	// is out of the comparable band: the two recordings did not have a comparable load, and no
+	// operation is suggested (ADR-0030).
+	UnevenLoad bool               `json:"uneven_load"`
+	Operations []OperationSymptom `json:"operations"`
 	// Suggested is the operation to analyze, a suggestion and never the origin; nil without one.
 	Suggested *OperationRef `json:"suggested"`
 }
@@ -73,11 +80,22 @@ type OperationSymptom struct {
 	CeilingMs *float64 `json:"ceiling_ms"`
 }
 
-// Thresholds of the generalized regression (ADR-0028).
+// Thresholds of the generalized regression (ADR-0030).
 const (
 	GeneralizedShare = 0.75 // of the operations with the minimum sample that regressed
 	StandOutRatio    = 10.0 // the largest p50 ratio over the second one
 	onsetSlowTraces  = 3    // the onset is the 3rd trace above the baseline p95
+)
+
+// Band of the median n ratio within which the two recordings have a comparable load (ADR-0030).
+// Out of it, the p50 ratios mix the regression with the difference in load, and a suggestion was
+// wrong in the pilot.
+const (
+	ComparableLoadMin = 0.8
+	ComparableLoadMax = 1.25
+	// comparableLoadOps is the fewest operations with the minimum sample for the median to judge
+	// the load: with two, a regressed operation that lost traces decides it alone.
+	comparableLoadOps = 3
 )
 
 // VersionInfo describes one version found in the traces of a service.
@@ -131,7 +149,7 @@ type opRoot struct {
 }
 
 // FindSymptoms compares the entry operations of a service between a baseline and a bad version,
-// with the regression rule of ADR-0028, and suggests the operation to analyze. h may be nil.
+// with the regression rule of ADR-0030, and suggests the operation to analyze. h may be nil.
 func FindSymptoms(spans []trace.Span, q SymptomsQuery, h History) (SymptomsReport, error) {
 	service, err := chooseService(spans, q.Service)
 	if err != nil {
@@ -189,8 +207,43 @@ func FindSymptoms(spans []trace.Span, q SymptomsQuery, h History) (SymptomsRepor
 		rep.Operations = append(rep.Operations, o)
 	}
 	sortOperations(rep.Operations)
+	rep.MedianNRatio = medianNRatio(rep.Operations)
+	rep.UnevenLoad = rep.MedianNRatio != nil && eligibleOps(rep.Operations) >= comparableLoadOps &&
+		(*rep.MedianNRatio < ComparableLoadMin || *rep.MedianNRatio > ComparableLoadMax)
 	rep.Generalized, rep.Suggested = suggest(rep.Operations)
+	if rep.UnevenLoad {
+		rep.Suggested = nil
+	}
 	return rep, nil
+}
+
+func eligibleOps(ops []OperationSymptom) int {
+	n := 0
+	for _, o := range ops {
+		if o.EnoughSample {
+			n++
+		}
+	}
+	return n
+}
+
+// medianNRatio is the median n ratio of the operations with the minimum sample; nil without one.
+func medianNRatio(ops []OperationSymptom) *float64 {
+	var rs []float64
+	for _, o := range ops {
+		if o.EnoughSample && o.NRatio != nil {
+			rs = append(rs, *o.NRatio)
+		}
+	}
+	if len(rs) == 0 {
+		return nil
+	}
+	sort.Float64s(rs)
+	m := rs[len(rs)/2]
+	if len(rs)%2 == 0 {
+		m = (rs[len(rs)/2-1] + m) / 2
+	}
+	return &m
 }
 
 func rootSample(roots []trace.Span) VersionSample {
@@ -222,7 +275,7 @@ func onset(bad []trace.Span, baselineP95 float64, start time.Time) *float64 {
 	return nil
 }
 
-// suggest applies the suggestion rule of ADR-0028 to the sorted operations. Out of a generalized
+// suggest applies the suggestion rule of ADR-0030 to the sorted operations. Out of a generalized
 // regression, the regressed operation with the largest p50 ratio is suggested; in one, only when it
 // stands out, at least 10x the second. Operations below the minimum sample never compete.
 func suggest(ops []OperationSymptom) (generalized bool, suggested *OperationRef) {
@@ -360,7 +413,7 @@ func versionsOf(roots []opRoot) []VersionInfo {
 }
 
 // chooseVersions fills the baseline and the bad version: from the flags, or, with exactly two
-// versions, by the git history when h is given and by time otherwise (ADR-0028).
+// versions, by the git history when h is given and by time otherwise (ADR-0030).
 func chooseVersions(rep *SymptomsReport, roots []opRoot, q SymptomsQuery, h History) error {
 	vs := versionsOf(roots)
 	if q.BaselineVersion != "" && q.BadVersion != "" {

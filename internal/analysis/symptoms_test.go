@@ -335,3 +335,81 @@ func TestSymptoms_GeneralizedRegressionAnInfiniteRatioStandsOut(t *testing.T) {
 		t.Errorf("generalized %v, suggested %+v, want GET /a", rep.Generalized, rep.Suggested)
 	}
 }
+
+// unevenLoad: GET /orders regressed 10x and GET /users 5x, GET /health is unchanged; the bad version
+// has badN traces of each operation against 80 in the baseline.
+func unevenLoad(badN int) []trace.Span {
+	return spansOf(
+		opTraces("api", vOld, "GET /orders", 80, 10, 0, 0), opTraces("api", vNew, "GET /orders", badN, 100, 100, 0),
+		opTraces("api", vOld, "GET /users", 80, 10, 0, 0), opTraces("api", vNew, "GET /users", badN, 50, 100, 0),
+		opTraces("api", vOld, "GET /health", 80, 1, 0, 0), opTraces("api", vNew, "GET /health", badN, 1, 100, 0),
+	)
+}
+
+func TestSymptoms_UnevenLoadSuggestsNothingAndReportsTheMedianNRatio(t *testing.T) {
+	for _, tc := range []struct {
+		badN int
+		want float64
+	}{{40, 0.5}, {62, 0.775}, {120, 1.5}} {
+		rep := findSymptoms(t, unevenLoad(tc.badN))
+		if !rep.UnevenLoad || rep.MedianNRatio == nil || *rep.MedianNRatio != tc.want {
+			t.Errorf("bad n %d: uneven %v, median %v, want uneven with %v", tc.badN, rep.UnevenLoad, rep.MedianNRatio, tc.want)
+		}
+		if rep.Suggested != nil {
+			t.Errorf("bad n %d: suggested = %+v, want none", tc.badN, rep.Suggested)
+		}
+		if o := operation(t, rep, "GET", "/orders"); o.Regression == "" {
+			t.Errorf("bad n %d: GET /orders lost its regression in the table", tc.badN)
+		}
+	}
+}
+
+func TestSymptoms_ComparableLoadAtTheEdgesOfTheBandStillSuggests(t *testing.T) {
+	for _, badN := range []int{64, 100} { // 0.8 and 1.25
+		rep := findSymptoms(t, unevenLoad(badN))
+		if rep.UnevenLoad {
+			t.Errorf("bad n %d: uneven, want comparable", badN)
+		}
+		if rep.Suggested == nil || rep.Suggested.Route != "/orders" {
+			t.Errorf("bad n %d: suggested = %+v, want GET /orders", badN, rep.Suggested)
+		}
+	}
+}
+
+func TestSymptoms_TheMedianNRatioIgnoresOperationsBelowTheMinimumSample(t *testing.T) {
+	spans := spansOf(twoVersions(0, 100),
+		opTraces("api", vOld, "POST /claim", 50, 2, 0, 0), opTraces("api", vNew, "POST /claim", 1, 5000, 100, 0))
+	rep := findSymptoms(t, spans)
+	if rep.UnevenLoad || rep.MedianNRatio == nil || *rep.MedianNRatio != 1 {
+		t.Errorf("uneven %v, median %v, want comparable with 1", rep.UnevenLoad, rep.MedianNRatio)
+	}
+}
+
+func TestSymptoms_WithFewerThanThreeOperationsTheLoadIsNotJudged(t *testing.T) {
+	// The only other operation is unchanged; the regressed one lost traces to stuck requests.
+	spans := spansOf(
+		opTraces("api", vOld, "GET /orders", 80, 10, 0, 0), opTraces("api", vNew, "GET /orders", 40, 100, 100, 0),
+		opTraces("api", vOld, "GET /health", 80, 1, 0, 0), opTraces("api", vNew, "GET /health", 80, 1, 100, 0),
+	)
+	rep := findSymptoms(t, spans)
+	if rep.UnevenLoad {
+		t.Error("2 operations: the median n ratio is not judged")
+	}
+	if rep.Suggested == nil || rep.Suggested.Route != "/orders" {
+		t.Errorf("suggested = %+v, want GET /orders", rep.Suggested)
+	}
+}
+
+func TestSymptoms_AMedianAtTheEdgeOfTheBandIsComparable(t *testing.T) {
+	// n ratios 0.75, 0.75, 0.85, 0.85: the median is 0.8, the edge of the band.
+	spans := spansOf(
+		opTraces("api", vOld, "GET /orders", 80, 10, 0, 0), opTraces("api", vNew, "GET /orders", 60, 100, 100, 0),
+		opTraces("api", vOld, "GET /users", 80, 10, 0, 0), opTraces("api", vNew, "GET /users", 60, 10, 100, 0),
+		opTraces("api", vOld, "GET /items", 80, 10, 0, 0), opTraces("api", vNew, "GET /items", 68, 10, 100, 0),
+		opTraces("api", vOld, "GET /health", 80, 1, 0, 0), opTraces("api", vNew, "GET /health", 68, 1, 100, 0),
+	)
+	rep := findSymptoms(t, spans)
+	if rep.UnevenLoad || rep.Suggested == nil {
+		t.Errorf("median %v: uneven %v, suggested %+v, want comparable with a suggestion", *rep.MedianNRatio, rep.UnevenLoad, rep.Suggested)
+	}
+}

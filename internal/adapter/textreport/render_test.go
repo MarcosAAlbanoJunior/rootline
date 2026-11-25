@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/textreport"
@@ -127,5 +128,55 @@ func TestRenderSymptoms_TableMarksSuggestionAndCommand(t *testing.T) {
 	}
 	if !bytes.Equal(got.Bytes(), want) {
 		t.Errorf("text differs from %s (rerun with -update to accept):\n%s", path, got.String())
+	}
+}
+
+func TestRenderSymptoms_UnevenLoadSaysWhyThereIsNoSuggestion(t *testing.T) {
+	var got bytes.Buffer
+	rep := analysis.SymptomsReport{
+		Service: "api", BaselineVersion: baseSHA, BadVersion: badSHA, VersionOrder: analysis.OrderGit,
+		MedianNRatio: ptr(0.51), UnevenLoad: true,
+		Operations: []analysis.OperationSymptom{
+			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/orders"}, EnoughSample: true, Regression: analysis.RegressionLatency,
+				Baseline: analysis.VersionStats{N: 80, P50: 10, P95: 12}, Bad: analysis.VersionStats{N: 40, P50: 100, P95: 130},
+				NRatio: ptr(0.5), P50Ratio: ptr(10), P95Ratio: ptr(10.83)},
+		},
+	}
+	if err := textreport.RenderSymptoms(&got, rep, "rootline analyze --operation 'GET /orders'"); err != nil {
+		t.Fatal(err)
+	}
+	text := got.String()
+	for _, want := range []string{"No operation is suggested: the load of the two recordings was uneven", "median n ratio 0.51", "0.8 to 1.25", "same load"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "rootline analyze") || strings.Contains(text, "none regressed") {
+		t.Errorf("uneven load: want no command and no other reason:\n%s", text)
+	}
+}
+
+func TestRenderSymptoms_UnevenLoadWithoutRegressionSaysNoneRegressed(t *testing.T) {
+	var got bytes.Buffer
+	rep := analysis.SymptomsReport{
+		Service: "api", BaselineVersion: baseSHA, BadVersion: badSHA, VersionOrder: analysis.OrderGit,
+		MedianNRatio: ptr(0.5), UnevenLoad: true,
+		Operations: []analysis.OperationSymptom{
+			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/orders"}, EnoughSample: true,
+				Baseline: analysis.VersionStats{N: 80, P50: 10, P95: 12}, Bad: analysis.VersionStats{N: 40, P50: 10, P95: 12},
+				NRatio: ptr(0.5), P50Ratio: ptr(1), P95Ratio: ptr(1)},
+		},
+	}
+	if err := textreport.RenderSymptoms(&got, rep, ""); err != nil {
+		t.Fatal(err)
+	}
+	text := got.String()
+	for _, want := range []string{"none regressed", "median n ratio 0.50"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "do not tell which operation regressed") {
+		t.Errorf("no operation regressed: the text must not imply one did:\n%s", text)
 	}
 }

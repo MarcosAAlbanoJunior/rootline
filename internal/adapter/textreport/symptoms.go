@@ -36,7 +36,17 @@ func RenderSymptoms(w io.Writer, r analysis.SymptomsReport, analyzeCommand strin
 	}
 	b.WriteString("\nonset: the 3rd trace above the baseline p95, counted from the first trace of the bad version. drop: the bad version has under half the traces (stuck requests that never became spans, or a different load). ceiling: at least 20% of the traces stop together, usually cut by a timeout.\n")
 
+	regressed := false
+	for _, o := range r.Operations {
+		regressed = regressed || o.Regression != ""
+	}
 	switch {
+	case r.UnevenLoad && r.MedianNRatio != nil && !regressed:
+		fmt.Fprintf(&b, "\nNo operation is suggested: none regressed. The load of the two recordings was uneven (median n ratio %.2f, outside %.1f to %.2f), so record both versions with the same load before trusting the comparison.\n",
+			*r.MedianNRatio, analysis.ComparableLoadMin, analysis.ComparableLoadMax)
+	case r.UnevenLoad && r.MedianNRatio != nil:
+		fmt.Fprintf(&b, "\nNo operation is suggested: the load of the two recordings was uneven (median n ratio %.2f, outside %.1f to %.2f). The load differed or requests got stuck without becoming spans, so the p50 ratios do not tell which operation regressed. Record both versions with the same load, or compare the onset and the drop columns to choose one.\n",
+			*r.MedianNRatio, analysis.ComparableLoadMin, analysis.ComparableLoadMax)
 	case r.Suggested == nil && r.Generalized:
 		fmt.Fprintf(&b, "\nNo operation is suggested: none stands out (the largest p50 ratio is not %.0fx the second). Compare the onset and the drop columns to choose one.\n", analysis.StandOutRatio)
 	case r.Suggested == nil:

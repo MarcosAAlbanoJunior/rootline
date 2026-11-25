@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-// Regression thresholds (ADR-0028). They are constants until a real case asks for others.
+// Regression thresholds (ADR-0030). They are constants until a real case asks for others.
 const (
 	MinRegressionSample = 30   // traces in each version
 	LatencyP50Ratio     = 1.5  // bad p50 / baseline p50
@@ -71,7 +71,7 @@ func (r Regression) P95Ratio() float64 { return ratio(r.Bad.P95, r.Baseline.P95)
 // load differs.
 func (r Regression) NRatio() float64 { return ratio(float64(r.Bad.N), float64(r.Baseline.N)) }
 
-// Regress applies the single regression rule of ADR-0028 to the two versions of one operation:
+// Regress applies the single regression rule of ADR-0030 to the two versions of one operation:
 // both need the minimum sample; latency regresses when p50 grows 1.5x or p95 2x, with at least
 // 5 ms more; error regresses when its rate rises at least one point and at least doubles.
 func Regress(baseline, bad VersionSample) Regression {

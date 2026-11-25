@@ -26,7 +26,7 @@ func sampleOf(vts []versionTrace) VersionSample {
 }
 
 // regressionChecks are the symptom_regression and error_rate checks (ADR-0027): whether the
-// operation really got slower, and whether its errors rose, by the rule of ADR-0028.
+// operation really got slower, and whether its errors rose, by the rule of ADR-0030.
 func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 	reg := Check{ID: CheckSymptomRegression}
 	errs := Check{ID: CheckErrorRate}
@@ -84,7 +84,7 @@ func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 	return reg, errs
 }
 
-// disappearanceRatio is the n ratio under which the drop in traces is pointed out (ADR-0028).
+// disappearanceRatio is the n ratio under which the drop in traces is pointed out (ADR-0030).
 const disappearanceRatio = 0.5
 
 func rate(errors int, st VersionStats) string {

@@ -1,7 +1,7 @@
 ---
 id: ADR-0028
 title: Definir Regressão por uma regra única e achar a operação que regrediu com rootline symptoms
-status: Aceito
+status: Substituído por ADR-0030
 date: 2026-11-25
 summary: Regressão = n ≥ 30 nas duas versões e (p50 ≥ 1,5x ou p95 ≥ 2x com +5 ms) ou erro +1 p.p. e ≥ 2x; mesma regra no analyze e no symptoms. Teto = ≥ 20% dos traces a 2% da duração máxima. O symptoms ordena por Regressão e sugere a maior razão de p50; na regressão generalizada (≥ 75%), só sugere se ela for ≥ 10x a segunda, senão lista início e sumiço como fatos. Validado nos 7 apps da rodada 2.
 modules: [analysis, cmd/rootline]

@@ -21,6 +21,12 @@ Hipótese de causa raiz emitida por um detector na fase 1, com suas evidências 
 - Relacionados: [Detector](#detector), [Evidência](#evidência)
 - No código: `Candidate`
 
+## Carga desigual
+Quando as duas gravações não tiveram carga comparável: a mediana da razão de n entre as operações
+com amostra mínima (pelo menos 3) fica fora de [0,8; 1,25] (ADR-0030). Pode ser carga diferente ou requisições
+presas. O `rootline symptoms` não sugere operação.
+- Relacionados: [Regressão](#regressão), [Gravação](#gravação)
+
 ## Cenário
 Sequência de commits num repo de fixture gerado por script (referência, regressão e distratores),
 com dados, carga e gabarito reprodutíveis. Unidade da avaliação.
@@ -196,7 +202,7 @@ com amostra mínima) ou ausente. Define o início do intervalo do diff.
 - No código: `Baseline`
 
 ## Regressão
-Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0028):
+Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0030):
 amostra mínima nas duas versões e latência (p50 ou p95) ou taxa de erro acima dos limiares. Tem
 tipo: latência, erro ou os dois.
 - Evitar: "piorou" solto, sem a regra; "degradação".

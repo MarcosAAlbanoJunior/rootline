@@ -44,9 +44,9 @@ Verificação `missing_index`.
 
 | id | O que relata |
 |---|---|
-| `symptom_regression` | Se a operação regrediu (regra do ADR-0028), com p50, p95 e n de cada versão e a razão de n |
+| `symptom_regression` | Se a operação regrediu (regra do ADR-0030), com p50, p95 e n de cada versão e a razão de n |
 | `error_rate` | Taxa de erro nas duas versões; quando ela regride, diz que a v1 não analisa erro (ADR-0005) |
-| `truncated_traces` | Quantos traces da versão ruim pararam no teto (ADR-0028) |
+| `truncated_traces` | Quantos traces da versão ruim pararam no teto (ADR-0030) |
 | `caller_hook` | Fração dos spans de banco com pilha da aplicação e a versão do hook vista (ADR-0029) |
 | `db_spans` | Spans de banco reconhecidos e spans de banco ignorados, por sistema |
 | `n_plus_one` | Se o detector rodou, ou por que não |
@@ -59,7 +59,7 @@ domínio (`internal/analysis`).
 **Fora desta decisão:** dizer para onde foi o tempo (handler, span HTTP, banco). Isso é um
 detector, não uma Verificação, e fica para o detector de forma do trace.
 
-**Teto e N+1.** Os traces da versão ruim que pararam no teto (definição no ADR-0028) saem da
+**Teto e N+1.** Os traces da versão ruim que pararam no teto (definição no ADR-0030) saem da
 contagem de queries por trace do detector de N+1, porque foram cortados e têm menos spans filhos.
 
 **Status.** O conjunto de status não muda. Sem regressão de latência, os detectores rodam do mesmo
