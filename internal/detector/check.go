@@ -23,8 +23,9 @@ type Check struct {
 // hintNoQuerySpans is shared by the detectors that read query spans.
 const hintNoQuerySpans = "Rootline recognizes database spans that carry db.query.text (PostgreSQL through pgx in v1); see the db_spans check and docs/guia-instrumentacao.md."
 
-// NPlusOneCheck reports the N+1 detector run over traces, given what Detect returned.
-func NPlusOneCheck(traces [][]trace.Span, cands []Candidate, discarded []Discarded) Check {
+// NPlusOneCheck reports the N+1 detector run over traces, given what Detect returned. excluded is
+// the number of traces left out of the count because they stopped at the ceiling (ADR-0027).
+func NPlusOneCheck(traces [][]trace.Span, cands []Candidate, discarded []Discarded, excluded int) Check {
 	c := Check{ID: TypeNPlusOne}
 	if len(traces) == 0 {
 		c.Status, c.Reason = CheckNotApplicable, "no traces of the operation in the bad version"
@@ -33,6 +34,9 @@ func NPlusOneCheck(traces [][]trace.Span, cands []Candidate, discarded []Discard
 	if countQuerySpans(traces) == 0 {
 		c.Status = CheckSkipped
 		c.Reason = fmt.Sprintf("no database query spans in the %d analyzed traces", len(traces))
+		if excluded > 0 {
+			c.Reason += fmt.Sprintf(" (%d traces at the ceiling left out)", excluded)
+		}
 		c.Hint = hintNoQuerySpans
 		return c
 	}
@@ -46,6 +50,9 @@ func NPlusOneCheck(traces [][]trace.Span, cands []Candidate, discarded []Discard
 	}
 	if len(discarded) > 0 {
 		fmt.Fprintf(&b, "; %d query(ies) discarded as pagination", len(discarded))
+	}
+	if excluded > 0 {
+		fmt.Fprintf(&b, "; %d traces at the ceiling left out of the count", excluded)
 	}
 	c.Reason = b.String()
 	return c

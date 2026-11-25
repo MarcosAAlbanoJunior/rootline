@@ -36,13 +36,14 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		good = tracesOf(byTrace, s, s.BaselineVersion)
 	}
 	regCheck, errCheck := regressionChecks(s, bad, good)
+	ceiling, complete := splitAtCeiling(bad)
 	hookCheck, dbCheck := dbChecks(bad)
-	res.Checks = append(res.Checks, regCheck, errCheck, hookCheck, dbCheck)
+	res.Checks = append(res.Checks, regCheck, errCheck, truncatedCheck(ceiling, len(bad)-len(complete)), hookCheck, dbCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
 			s.Service, s.Operation.Method, s.Operation.Route, s.BadVersion))
 		res.Checks = append(res.Checks,
-			fromDetector(detector.NPlusOneCheck(nil, nil, nil)),
+			fromDetector(detector.NPlusOneCheck(nil, nil, nil, 0)),
 			fromDetector(detector.MissingIndexCheck(nil, plans != nil, nil, nil)),
 			Check{ID: CheckCommitCorrelation, Status: CheckNotApplicable, Reason: "no traces of the operation in the bad version"})
 		return res, nil
@@ -55,14 +56,14 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		res.Symptom.Operation.RouteSource = op.RouteSource // the real source, not the caller's guess
 	}
 
-	cands, discarded, err := detector.Detect(env{idx: idx, git: git}, s.BadVersion, spansOf(bad))
+	cands, discarded, err := detector.Detect(env{idx: idx, git: git}, s.BadVersion, spansOf(complete))
 	if err != nil {
 		return Result{}, err
 	}
 	for _, d := range discarded {
 		res.Observations = append(res.Observations, fmt.Sprintf("pagination_shape: %s (%d traces)", d.Query, d.Traces))
 	}
-	res.Checks = append(res.Checks, fromDetector(detector.NPlusOneCheck(spansOf(bad), cands, discarded)))
+	res.Checks = append(res.Checks, fromDetector(detector.NPlusOneCheck(spansOf(complete), cands, discarded, len(bad)-len(complete))))
 	var idxCands []detector.Candidate
 	var skipped []detector.Skipped
 	if plans != nil {
