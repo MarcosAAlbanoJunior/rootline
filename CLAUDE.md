@@ -24,7 +24,9 @@ go work init . ./hook ./demo-app
   `//nolint` só com o linter nomeado e o motivo: `//nolint:errcheck // <motivo>`.
 - Referências a spec: `./scripts/check-no-spec-refs.sh` (`git grep` nos `.go` rastreados dos três
   módulos; sai com 1 se achar alguma). É o primeiro passo do gate.
-- Gate (`scripts/check.sh`): referências a spec + build + `go test ./...` + gofmt + `go vet` + lint dos três módulos, igual ao job `check` do CI. Rode antes de declarar uma mudança pronta.
+- Versão do hook: `./scripts/check-hook-version.sh` (major.minor de `callerhook.Version` igual ao
+  `compatibleHook`). Release do hook ou da raiz: `docs/release.md`.
+- Gate (`scripts/check.sh`): referências a spec + versão do hook + build + `go test ./...` + gofmt + `go vet` + lint dos três módulos, igual ao job `check` do CI. Rode antes de declarar uma mudança pronta.
 - CI (`.github/workflows/ci.yml`): `check` (o mesmo que o gate, nos três módulos), `cross` (compilação
   para linux/darwin/windows), `placar` (grava todos os cenários com Docker, em série, e roda um `score` sem
   `--update`; desvio temporário do ADR-0008, issue #5) e `e2e` (só na `main` e sob demanda). Actions fixadas por SHA;

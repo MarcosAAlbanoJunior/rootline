@@ -27,6 +27,8 @@ jobs:
           install-only: true
       - name: no spec refs
         run: ./scripts/check-no-spec-refs.sh
+      - name: hook version
+        run: ./scripts/check-hook-version.sh
       - name: root
         run: |
           go build ./...
