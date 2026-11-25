@@ -4,7 +4,7 @@ import "github.com/MarcosAAlbanoJunior/rootline/internal/detector"
 
 // Result constants.
 const (
-	SchemaVersion = "0"
+	SchemaVersion = "1"
 	ModeDetectors = "detectors_only"
 
 	StatusCauseFound   = "cause_found"
@@ -25,7 +25,31 @@ type Result struct {
 	Candidates    []Candidate `json:"candidates"`
 	Evidence      []any       `json:"evidence"`
 	Observations  []string    `json:"observations"`
-	Warnings      []string    `json:"warnings"`
+	// Checks says what the analysis verified and why the Result is what it is (ADR-0027). Warnings
+	// are only about the Result itself, such as an approximate location.
+	Checks   []Check  `json:"checks"`
+	Warnings []string `json:"warnings"`
+}
+
+// Check statuses.
+const (
+	CheckRan           = detector.CheckRan
+	CheckSkipped       = detector.CheckSkipped
+	CheckNotApplicable = detector.CheckNotApplicable
+)
+
+// Check ids that are not a detector's.
+const (
+	CheckCommitCorrelation = "commit_correlation"
+)
+
+// Check is one detector or precondition evaluated by the analysis (Verificação): ID is stable,
+// Status is ran, skipped or not_applicable, Reason is the observed fact and Hint what to do next.
+type Check struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+	Hint   string `json:"hint"`
 }
 
 // SymptomInfo echoes the analyzed symptom.

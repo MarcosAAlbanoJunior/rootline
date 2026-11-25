@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/correlation"
@@ -25,6 +26,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		Candidates:    []Candidate{},
 		Evidence:      []any{},
 		Observations:  []string{},
+		Checks:        []Check{},
 		Warnings:      []string{},
 	}
 
@@ -37,6 +39,10 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
 			s.Service, s.Operation.Method, s.Operation.Route, s.BadVersion))
+		res.Checks = append(res.Checks,
+			fromDetector(detector.NPlusOneCheck(nil, nil, nil)),
+			fromDetector(detector.MissingIndexCheck(nil, plans != nil, nil, nil)),
+			Check{ID: CheckCommitCorrelation, Status: CheckNotApplicable, Reason: "no traces of the operation in the bad version"})
 		return res, nil
 	}
 	if s.BaselineVersion != "" && len(good) == 0 {
@@ -54,20 +60,20 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	for _, d := range discarded {
 		res.Observations = append(res.Observations, fmt.Sprintf("pagination_shape: %s (%d traces)", d.Query, d.Traces))
 	}
-	if plans == nil {
-		// A warning, not an observation: it describes the analysis, not the system (ADR-0023). The
-		// "missing_index_skipped:" prefix is the stable id.
-		res.Warnings = append(res.Warnings, "missing_index_skipped: no query plans")
-	} else {
-		idxCands, skipped, err := detector.DetectMissingIndex(env{idx: idx, git: git}, plans, s.BadVersion, spansOf(bad))
+	res.Checks = append(res.Checks, fromDetector(detector.NPlusOneCheck(spansOf(bad), cands, discarded)))
+	var idxCands []detector.Candidate
+	var skipped []detector.Skipped
+	if plans != nil {
+		idxCands, skipped, err = detector.DetectMissingIndex(env{idx: idx, git: git}, plans, s.BadVersion, spansOf(bad))
 		if err != nil {
 			return Result{}, err
 		}
 		cands = append(cands, idxCands...)
-		for _, sk := range skipped {
-			res.Warnings = appendUnique(res.Warnings, fmt.Sprintf("missing_index_skipped: %s: %s", sk.Query, sk.Reason))
-		}
 	}
+	res.Checks = append(res.Checks, fromDetector(detector.MissingIndexCheck(spansOf(bad), plans != nil, idxCands, skipped)))
+
+	corr := correlationCheck(git, s)
+	correlate := corr.Status == "" // still undecided: the versions are in the repository
 
 	scored := make([]scoredCandidate, 0, len(cands))
 	for _, c := range cands {
@@ -78,7 +84,8 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		for _, w := range c.Warnings {
 			res.Warnings = appendUnique(res.Warnings, w)
 		}
-		if s.BaselineVersion != "" && len(c.Stack) > 0 {
+		if correlate && len(c.Stack) > 0 {
+			corr.Status = CheckRan
 			touch, ok, err := bestTouch(idx, git, s, c)
 			if err != nil {
 				return Result{}, err
@@ -122,6 +129,8 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		res.Evidence = append(res.Evidence, statsEvidence(newID(), s.BaselineVersion, good))
 	}
 
+	res.Checks = append(res.Checks, finishCorrelation(corr, s, res.Candidates, scored))
+
 	if len(scored) > 0 {
 		top := res.Candidates[0]
 		cause := &Cause{CandidateID: top.ID, Type: top.Type, Target: top.Target, Confidence: top.Confidence, Location: top.Location}
@@ -132,6 +141,65 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		res.Status = StatusCauseFound
 	}
 	return res, nil
+}
+
+func fromDetector(c detector.Check) Check {
+	return Check{ID: c.ID, Status: c.Status, Reason: c.Reason, Hint: c.Hint}
+}
+
+// correlationCheck decides, before the candidates are correlated, whether the correlation can run:
+// it needs a baseline and both versions in the repository. An empty Status means it can. A git
+// failure skips the correlation instead of failing the analysis.
+func correlationCheck(git Git, s Symptom) Check {
+	c := Check{ID: CheckCommitCorrelation}
+	if s.BaselineVersion == "" {
+		c.Status, c.Reason = CheckNotApplicable, "no baseline version: there is no commit range to inspect"
+		c.Hint = "Pass --baseline-version with the version before the regression to look for the commit that introduced the cause."
+		return c
+	}
+	for _, sha := range []string{s.BaselineVersion, s.BadVersion} {
+		ok, err := git.HasCommit(sha)
+		if err != nil {
+			c.Status, c.Reason = CheckSkipped, fmt.Sprintf("could not read the repository: %v", err)
+			c.Hint = "--repo must be a git checkout of the service."
+			return c
+		}
+		if !ok {
+			c.Status, c.Reason = CheckSkipped, fmt.Sprintf("version %s is not a commit of the repository", sha)
+			c.Hint = "service.version must be the git SHA of the deployed commit, and --repo the repository of the service."
+			return c
+		}
+	}
+	return c
+}
+
+// finishCorrelation completes the commit_correlation check after the candidates were correlated.
+func finishCorrelation(c Check, s Symptom, cands []Candidate, scored []scoredCandidate) Check {
+	if c.Status == CheckRan {
+		var touched []string
+		for i, sc := range scored {
+			if sc.touch != nil {
+				touched = append(touched, fmt.Sprintf("%s by commit %s (%s)", cands[i].ID, sc.touch.Commit, sc.touch.Strength))
+			}
+		}
+		if len(touched) == 0 {
+			c.Reason = fmt.Sprintf("%d candidate(s) checked; no commit in %s..%s changed a function on their stacks",
+				len(scored), s.BaselineVersion, s.BadVersion)
+		} else {
+			c.Reason = "touched: " + strings.Join(touched, "; ")
+		}
+		return c
+	}
+	if c.Status == "" {
+		c.Status = CheckNotApplicable
+		if len(scored) == 0 {
+			c.Reason = "no candidate to correlate"
+		} else {
+			c.Reason = "no candidate has an app stack to compare with the changed lines"
+			c.Hint = "Install the caller hook to get the app stack on database spans; see docs/guia-instrumentacao.md."
+		}
+	}
+	return c
 }
 
 // causeEvidence is the evidence of what the detector saw: the repeated query of an N+1 or the plan

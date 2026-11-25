@@ -86,7 +86,7 @@ func TestRun_AnalyzeWithPlansFindsTheMissingIndex(t *testing.T) {
 	repo, sha := repoWithRepository(t)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"analyze", "--traces", singleQueryTraces(t, sha, 4), "--plans", plansFile(t, sha),
+	code := run([]string{"analyze", "--format", "json", "--traces", singleQueryTraces(t, sha, 4), "--plans", plansFile(t, sha),
 		"--repo", repo, "--service", "demo-app", "--operation", "GET /customers/{id}/orders",
 		"--bad-version", sha}, &stdout, &stderr)
 

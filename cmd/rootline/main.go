@@ -12,6 +12,7 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/goindex"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/otlpfile"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/planfile"
+	"github.com/MarcosAAlbanoJunior/rootline/internal/adapter/textreport"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/analysis"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
@@ -20,7 +21,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = `usage: rootline analyze --traces <file.jsonl> --repo <dir> --service <name> --operation "<METHOD> <route>" --bad-version <sha> [--baseline-version <sha>] [--plans <plans.jsonl>]`
+const usage = `usage: rootline analyze --traces <file.jsonl> --repo <dir> --service <name> --operation "<METHOD> <route>" --bad-version <sha> [--baseline-version <sha>] [--plans <plans.jsonl>] [--format text|json]`
 
 // run executes the CLI and returns the exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(args []string, stdout, stderr io.Writer) int {
@@ -45,8 +46,13 @@ func analyze(args []string, stdout, stderr io.Writer) int {
 	bad := fs.String("bad-version", "", "SHA of the bad version")
 	baseline := fs.String("baseline-version", "", "SHA of the reference version")
 	plansPath := fs.String("plans", "", "recorded execution plans (plans.jsonl); without it the missing-index detector does not run")
+	format := fs.String("format", formatText, "output format: text (Markdown, the default) or json")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(stderr, "rootline: %v\n%s\n", err, usage)
+		return 2
+	}
+	if *format != formatText && *format != formatJSON {
+		fmt.Fprintf(stderr, "rootline: --format must be text or json, got %q\n", *format)
 		return 2
 	}
 	for name, v := range map[string]string{"--traces": *tracesPath, "--repo": *repo, "--service": *service,
@@ -96,11 +102,26 @@ func analyze(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rootline: %v\n", err)
 		return 1
 	}
-	enc := json.NewEncoder(stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(res); err != nil {
+	// Any finished analysis exits 0, inconclusive included; CI reads the status from the JSON
+	// (ADR-0027).
+	if err := write(stdout, *format, res); err != nil {
 		fmt.Fprintf(stderr, "rootline: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// Output formats.
+const (
+	formatText = "text"
+	formatJSON = "json"
+)
+
+func write(w io.Writer, format string, v any) error {
+	if format == formatJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(v)
+	}
+	return textreport.Render(w, v.(analysis.Result))
 }

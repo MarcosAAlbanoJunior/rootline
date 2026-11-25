@@ -195,3 +195,37 @@ func TestReadBlob_RefusesNonBlobEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestHasCommit_TellsKnownCommitsFromUnknownOnes(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	sha := r.commit("c1")
+	g := gitcli.New(r.dir)
+
+	for _, tc := range []struct {
+		sha  string
+		want bool
+	}{
+		{sha, true},
+		{sha[:7], true},
+		{"0123456789abcdef0123456789abcdef01234567", false},
+		{"1.2.0", false}, // a service.version that is not a SHA
+	} {
+		got, err := g.HasCommit(tc.sha)
+		if err != nil {
+			t.Fatalf("HasCommit(%q): %v", tc.sha, err)
+		}
+		if got != tc.want {
+			t.Errorf("HasCommit(%q) = %v, want %v", tc.sha, got, tc.want)
+		}
+	}
+}
+
+func TestHasCommit_OutsideARepositoryIsAnError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	if _, err := gitcli.New(t.TempDir()).HasCommit("0123456789abcdef0123456789abcdef01234567"); err == nil {
+		t.Fatal("want an error outside a repository")
+	}
+}

@@ -92,7 +92,13 @@ func (fakeIndex) FuncRange(_, file, fn string) (int, int, bool, error) {
 	return 0, 0, false, nil
 }
 
-type fakeGit struct{ changes map[string][][2]int }
+type fakeGit struct {
+	changes map[string][][2]int
+	missing map[string]bool // SHAs that are not in the repository
+	broken  error           // returned by HasCommit, as when --repo is not a git checkout
+}
+
+func (g fakeGit) HasCommit(sha string) (bool, error) { return !g.missing[sha], g.broken }
 
 func (fakeGit) ResolvePath(_, _, rel string) (string, error) { return "demo-app/" + rel, nil }
 func (fakeGit) RevList(base, badSHA string) ([]string, error) {
@@ -168,7 +174,7 @@ var touchingService = fakeGit{changes: map[string][][2]int{svcFile: {{40, 44}}}}
 func TestAnalyze_CauseFoundWithCommit(t *testing.T) {
 	m := run(t, allSpans(4, 4, badTrace), touchingService, symptom)
 
-	if m["schema_version"] != "0" || m["mode"] != "detectors_only" || m["status"] != "cause_found" {
+	if m["schema_version"] != "1" || m["mode"] != "detectors_only" || m["status"] != "cause_found" {
 		t.Fatalf("header wrong: %v %v %v", m["schema_version"], m["mode"], m["status"])
 	}
 	sy := obj(t, m["symptom"])
