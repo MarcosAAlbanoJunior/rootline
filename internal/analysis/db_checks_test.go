@@ -140,3 +140,49 @@ func TestCallerHookCheck_AnOlderHookAsksToUpdateTheHook(t *testing.T) {
 	contains(t, c, "hint", "0.0.9 is incompatible")
 	contains(t, c, "hint", "go get github.com/MarcosAAlbanoJunior/rootline/hook@v0.1")
 }
+
+// onSystem marks the database spans with a database system, as a db.system.name attribute.
+func onSystem(system string, fn func(string) []trace.Span) func(string) []trace.Span {
+	return func(id string) []trace.Span {
+		spans := fn(id)
+		for _, s := range spans {
+			if _, ok := s.Attrs["db.query.text"]; ok {
+				s.Attrs["db.system.name"] = system
+			}
+		}
+		return spans
+	}
+}
+
+func TestDBSpansCheck_QuerySpansOfAnotherDatabaseAreIgnoredAndNotDetected(t *testing.T) {
+	m := run(t, allSpans(4, 4, withoutStack(onSystem("mysql", badTrace))), fakeGit{}, symptom)
+	c := check(t, m, "db_spans")
+	contains(t, c, "reason", "0 database spans recognized")
+	contains(t, c, "reason", "mysql: 44")
+	contains(t, c, "hint", "Only PostgreSQL")
+	if m["status"] != "inconclusive" {
+		t.Errorf("status = %v, want inconclusive: the N+1 does not read MySQL spans", m["status"])
+	}
+}
+
+func TestDBSpansCheck_PostgreSQLAndUnnamedQuerySpansAreRecognized(t *testing.T) {
+	for _, fn := range []func(string) []trace.Span{onSystem("postgresql", badTrace), badTrace} {
+		c := check(t, run(t, allSpans(4, 4, fn), fakeGit{}, symptom), "db_spans")
+		contains(t, c, "reason", "44 database spans recognized")
+	}
+}
+
+func TestDBSpansCheck_QuerySpansOfAnotherDatabaseAreIgnoredWhateverTheirKind(t *testing.T) {
+	internal := func(id string) []trace.Span {
+		spans := onSystem("mysql", badTrace)(id)
+		for i := range spans {
+			if _, ok := spans[i].Attrs["db.query.text"]; ok {
+				spans[i].Kind = trace.KindInternal
+			}
+		}
+		return spans
+	}
+	c := check(t, run(t, allSpans(4, 4, withoutStack(internal)), fakeGit{}, symptom), "db_spans")
+	contains(t, c, "reason", "mysql: 44")
+	contains(t, c, "hint", "Only PostgreSQL")
+}

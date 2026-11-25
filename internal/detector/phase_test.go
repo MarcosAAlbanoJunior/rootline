@@ -24,6 +24,11 @@ func TestPhaseOf_ClassifiesDatabaseSpans(t *testing.T) {
 		{"no phase, plain query", dbSpan("t", "s", "p", 0, itemsQuery, 1, noPhase()), detector.PhaseQuery},
 		{"no phase, name without rows is prepare", dbSpan("t", "s", "p", 0, itemsQuery, 1, noPhase(), prepName(), noRows()), detector.PhasePrepare},
 		{"no phase, name with rows is query", dbSpan("t", "s", "p", 0, itemsQuery, 1, noPhase(), prepName()), detector.PhaseQuery},
+		{"postgresql query", dbSpan("t", "s", "p", 0, itemsQuery, 1, attr("db.system.name", "postgresql")), detector.PhaseQuery},
+		{"legacy postgresql query", dbSpan("t", "s", "p", 0, itemsQuery, 1, attr("db.system", "postgresql")), detector.PhaseQuery},
+		{"postgres alias in another case", dbSpan("t", "s", "p", 0, itemsQuery, 1, attr("db.system", "Postgres")), detector.PhaseQuery},
+		{"query of another database", dbSpan("t", "s", "p", 0, itemsQuery, 1, attr("db.system.name", "mysql")), detector.PhaseNone},
+		{"legacy query of another database", dbSpan("t", "s", "p", 0, itemsQuery, 1, noPhase(), attr("db.system", "mysql")), detector.PhaseNone},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -33,3 +38,5 @@ func TestPhaseOf_ClassifiesDatabaseSpans(t *testing.T) {
 		})
 	}
 }
+
+func attr(k, v string) opt { return func(s *trace.Span) { s.Attrs[k] = v } }

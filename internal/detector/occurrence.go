@@ -2,6 +2,7 @@ package detector
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
@@ -15,6 +16,23 @@ const (
 	PhasePrepare
 )
 
+// SupportedDBSystem is the database whose client spans the detectors read in v1.
+const SupportedDBSystem = "postgresql"
+
+// DBSystem is the database system of a span, from db.system.name or the legacy db.system, in lower
+// case and with "postgres" read as SupportedDBSystem; "" when the span names none.
+func DBSystem(s trace.Span) string {
+	v, ok := s.String(attrDBSystemName)
+	if !ok || v == "" {
+		v, _ = s.String(attrDBSystem)
+	}
+	v = strings.ToLower(v)
+	if v == "postgres" { // the name some instrumentations take from the driver or dialector
+		return SupportedDBSystem
+	}
+	return v
+}
+
 // PhaseOf tells whether a span is a query span, a prepare span or not a database span.
 func PhaseOf(s trace.Span) Phase {
 	p, _ := classify(s)
@@ -25,6 +43,11 @@ func PhaseOf(s trace.Span) Phase {
 // answer came from the heuristic (no rootline.db.phase attribute).
 func classify(s trace.Span) (kind Phase, inferred bool) {
 	if _, ok := s.String(attrQueryText); !ok {
+		return PhaseNone, false
+	}
+	// A span of another database is not read, even with a query text. A span with no system is,
+	// because the GORM plugin writes db.system only after the query (ADR-0029).
+	if sys := DBSystem(s); sys != "" && sys != SupportedDBSystem {
 		return PhaseNone, false
 	}
 	if p, ok := s.String(attrPhase); ok {

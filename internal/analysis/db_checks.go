@@ -18,14 +18,9 @@ const (
 
 // Span attributes read by the instrumentation checks.
 const (
-	attrAppStack     = "rootline.app_stack"
-	attrHookVersion  = "rootline.hook.version"
-	attrDBSystemName = "db.system.name"
-	attrDBSystem     = "db.system"
+	attrAppStack    = "rootline.app_stack"
+	attrHookVersion = "rootline.hook.version"
 )
-
-// supportedDBSystem is the database whose client spans the detectors read in v1.
-const supportedDBSystem = "postgresql"
 
 const guide = "docs/guia-instrumentacao.md"
 
@@ -64,15 +59,14 @@ func dbChecks(bad []versionTrace) (Check, Check) {
 				prepares++
 				continue
 			}
-			if sp.Kind != trace.KindClient {
-				continue
-			}
-			switch sys := dbSystem(sp); sys {
-			case "":
-			case supportedDBSystem:
-				pgNoText++
-			default:
+			// A span of another database is ignored whatever its kind: some ORM wrappers
+			// record the query as an internal span.
+			switch sys := detector.DBSystem(sp); {
+			case sys == "":
+			case sys != detector.SupportedDBSystem:
 				ignored[sys]++
+			case sp.Kind == trace.KindClient:
+				pgNoText++
 			}
 		}
 	}
@@ -86,7 +80,7 @@ func dbChecks(bad []versionTrace) (Check, Check) {
 	}
 	if queries+prepares == 0 {
 		if pgNoText > 0 {
-			db.Reason += fmt.Sprintf("; %d %s client spans carry no db.query.text", pgNoText, supportedDBSystem)
+			db.Reason += fmt.Sprintf("; %d %s client spans carry no db.query.text", pgNoText, detector.SupportedDBSystem)
 		}
 		db.Hint = joinHints(db.Hint, "Without recognized database spans the detectors have nothing to read; see "+guide+".")
 	}
@@ -108,14 +102,6 @@ func dbChecks(bad []versionTrace) (Check, Check) {
 		hook.Hint = joinHints(hook.Hint, incompatibleHint(older, newer))
 	}
 	return hook, db
-}
-
-func dbSystem(sp trace.Span) string {
-	if v, ok := sp.String(attrDBSystemName); ok && v != "" {
-		return v
-	}
-	v, _ := sp.String(attrDBSystem)
-	return v
 }
 
 func countsBySystem(m map[string]int) string {
