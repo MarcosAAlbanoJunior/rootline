@@ -67,6 +67,9 @@ type request struct {
 				StartTimeUnixNano json.Number `json:"startTimeUnixNano"`
 				EndTimeUnixNano   json.Number `json:"endTimeUnixNano"`
 				Attributes        []keyValue  `json:"attributes"`
+				Status            struct {
+					Code json.RawMessage `json:"code"`
+				} `json:"status"`
 			} `json:"spans"`
 		} `json:"scopeSpans"`
 	} `json:"resourceSpans"`
@@ -171,13 +174,40 @@ func parseLine(line []byte) ([]trace.Span, error) {
 					}
 					kind = k
 				}
+				status := statusCode(sp.Status.Code)
 				out = append(out, trace.Span{
 					TraceID: sp.TraceID, SpanID: sp.SpanID, ParentSpanID: sp.ParentSpanID,
-					Name: sp.Name, Kind: kind, Scope: ss.Scope.Name,
+					Name: sp.Name, Kind: kind, StatusCode: status, Scope: ss.Scope.Name,
 					Start: start, End: end, Attrs: attrs, Service: service, Version: version,
 				})
 			}
 		}
 	}
 	return out, nil
+}
+
+// statusNames are the enum names some JSON encoders write instead of the number.
+var statusNames = map[string]int{
+	"STATUS_CODE_UNSET": trace.StatusUnset,
+	"STATUS_CODE_OK":    trace.StatusOK,
+	"STATUS_CODE_ERROR": trace.StatusError,
+}
+
+// statusCode reads status.code, written as a number, a quoted number or the enum name. Absent or
+// unrecognized means unset: a status the reader does not know must not fail the whole file.
+func statusCode(raw json.RawMessage) int {
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		return n
+	}
+	var name string
+	if json.Unmarshal(raw, &name) == nil {
+		if c, ok := statusNames[name]; ok {
+			return c
+		}
+		if c, err := strconv.Atoi(name); err == nil {
+			return c
+		}
+	}
+	return trace.StatusUnset
 }

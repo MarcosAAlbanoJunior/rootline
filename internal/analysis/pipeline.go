@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/correlation"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
@@ -36,6 +35,8 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	if s.BaselineVersion != "" {
 		good = tracesOf(byTrace, s, s.BaselineVersion)
 	}
+	regCheck, errCheck := regressionChecks(s, bad, good)
+	res.Checks = append(res.Checks, regCheck, errCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
 			s.Service, s.Operation.Method, s.Operation.Route, s.BadVersion))
@@ -382,7 +383,7 @@ func statsEvidence(id, version string, vts []versionTrace) SymptomStatsEvidence 
 	durations := make([]float64, 0, len(vts))
 	counts := make([]int, 0, len(vts))
 	for _, vt := range vts {
-		durations = append(durations, float64(vt.root.End.Sub(vt.root.Start))/float64(time.Millisecond))
+		durations = append(durations, durationMs(vt.root))
 		n := 0
 		for _, sp := range vt.spans {
 			if detector.PhaseOf(sp) == detector.PhaseQuery {
