@@ -2,7 +2,7 @@
 id: SPIKE-2026-11-24-piloto-apps-reais
 title: Piloto do Rootline em dez apps reais escritos por quem não conhece a ferramenta
 status: Concluído
-summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Orienta o docs/roadmap.md.
+summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Rodada 3 (10 apps, usuário cego só com README e guia) - 3/3 causas, 0/7 falsos positivos, sem script externo; o symptoms sugeriu errado no app-01 sob gravação ruidosa. Orienta o docs/roadmap.md.
 ---
 
 # Piloto do Rootline em apps reais
@@ -130,6 +130,112 @@ referência e a versão ruim tinham dois commits entre elas, e o Rootline escolh
 - A versão muda o volume compartilhado (migração no app-04, índices recriados no startup do
   app-06). Tirar um snapshot do volume antes de gravar.
 - A faixa de portas `6<NN>000` passa de 65535 a partir do app-06. Atribuir faixas válidas.
+
+## Rodada 3: usuário cego com o README e o guia
+
+Teste de aceitação do lote "Rootline usável por quem nunca o viu" (#60), com os ADRs 0027 a 0029 já
+na `main`.
+
+### Método
+
+- **Um agente novo por app.** A única fonte sobre o Rootline eram cópias do `README.md` e do
+  `docs/guia-instrumentacao.md`. O agente não podia ler o código do Rootline, as ferramentas do
+  laboratório, os patches de hook das rodadas anteriores, os gabaritos nem os outros apps. Também
+  não podia escrever scripts para ler os traces ou o Resultado, nem achar a causa lendo o código.
+- **Instalação como usuário.** Rootline por `go install …/cmd/rootline@main` (commit `9d29c7a`) e hook por
+  `go get …/hook@v0.1.0`. Cada agente escolheu a receita do guia, subiu o próprio Collector e gravou
+  as duas versões com a carga do app.
+- **Mesmas versões da rodada 2:** a referência é o último commit pelo menos 5 dias antes do HEAD.
+  Os apps 01 a 03 foram regravados.
+- **Os 10 apps em paralelo.** A máquina chegou a load average 36. Os volumes foram guardados antes e
+  restaurados depois.
+- **Gabarito aberto só depois** do relatório de cada agente.
+
+### Resultado
+
+| App | Receita do hook | `symptoms` sugeriu | Resultado | Bate com o gabarito |
+|---|---|---|---|---|
+| app-01 | 1 (otelpgx) | `POST /v1/devices/{id}/readings` (**errada**) | inconclusive na sugerida; N+1 na 2ª linha da tabela | causa, função, linha e commit, pela 2ª linha |
+| app-02 | 1 (otelpgx) | nada ("none regressed") | N+1, high | causa, função, linha e commit |
+| app-03 | 1 (otelpgx) | nada ("none regressed") | N+1, high | causa, função, linha e commit |
+| app-04 | nenhuma (MySQL) | nada (generalizada) | inconclusive | sem falso positivo |
+| app-05 | 3 (otelsql) | rota certa | inconclusive | sem falso positivo |
+| app-06 | nenhuma (MongoDB) | rota certa (generalizada, uma destoa) | inconclusive | sem falso positivo |
+| app-07 | 4 (GORM) | rota certa (regressão de erro) | inconclusive | sem falso positivo |
+| app-08 | 1 (otelpgx) | rota certa | inconclusive | sem falso positivo |
+| app-09 | nenhuma (MySQL) | nada (generalizada) | inconclusive | sem falso positivo |
+| app-10 | 1 (otelpgx) | nada (generalizada, 9,6x contra 10x) | inconclusive | sem falso positivo |
+
+- **Causa nos apps 01 a 03: 3 de 3**, com função, arquivo:linha e commit.
+- **Falso positivo nos apps 04 a 10: 0 de 7.** Os sete agentes explicaram o `inconclusive` só pelas
+  Verificações: banco sem suporte, hook ausente, planos que só a avaliação gera, regressão de erro
+  fora da v1 ou causa fora dos detectores.
+- **Script externo: 0 de 10.** O sintoma e o Resultado saíram só do `symptoms` e do `analyze`.
+- **`symptoms`:**
+  - certa em 4 apps;
+  - nenhuma sugestão em 5;
+  - **errada em 1** (app-01).
+  - Nos apps sem sugestão, o agente achou a rota certa pela tabela (razão de p50 e início).
+- **Receitas do hook:** as receitas 1, 3 e 4 funcionaram de primeira, com 100% dos spans de query com
+  pilha em todos os apps com pgx.
+
+### A sugestão errada do app-01
+
+Na gravação em paralelo, a versão ruim do app-01 gravou cerca de metade dos traces de todas as rotas
+(razão de n de 0,47 a 0,57). O p95 da versão boa no `POST /v1/devices/{id}/readings` já estava em
+2,5 s. O `POST` ficou com p50 6,93x, contra 5,74x da rota certa, e foi sugerido. Ele estava marcado com
+**drop**, e o `analyze` dele deu `inconclusive`.
+
+Um agente cego novo regravou o app-01 sozinho, com a máquina parada:
+- todas as rotas ficaram com razão de n igual a 1,00;
+- só `GET /v1/sites/{id}/devices` regrediu (p50 6,39x);
+- o `symptoms` sugeriu essa rota, e o `analyze` acertou causa, função, linha e commit.
+
+A sugestão errada veio do ruído da gravação, mas a regra não se defendeu dele: sugeriu uma operação
+com queda de amostra e p95 de referência já degradado. Pelo critério, a rodada oficial reprova
+"nunca sugere errado".
+
+### Lacunas novas
+
+1. **O `symptoms` sugere sob gravação ruidosa.** Quando a razão de n cai em todas as rotas, ou a
+   referência já tem cauda longa, a sugestão não é confiável. Ele avisa "drop", mas sugere mesmo
+   assim (app-01).
+2. **O p95 veta regressões claras no p50.** Nos apps 02 e 03, o p50 subiu 4,5x e 3,8x, e a tabela
+   marcou "no" porque o p95 da referência estava ruidoso ou igual. O `analyze` acha o N+1 com
+   confiança alta enquanto a `symptom_regression` diz "no latency regression", e nada explica a
+   divergência.
+3. **`db_spans` reconhece spans de MySQL.** Um span com `db.query.text` conta como query qualquer
+   que seja o `db.system.name`. Nos apps 04 e 09, os spans `mysql` viraram "recognized" e passaram
+   pelo N+1, contra o que o guia diz. Não houve falso positivo, mas a Verificação contradiz o guia.
+4. **O guia não ensina a gravar em contêiner.** Todos os agentes tropeçaram em algum destes pontos:
+   - não há `docker run` do Collector;
+   - o file exporter roda como uid 10001 e precisa de `/out` com permissão de escrita;
+   - o `localhost:4318` do guia não serve para um serviço em contêiner;
+   - não diz como levar o patch do hook da versão boa para a ruim sem commitá-lo;
+   - não diz como manter o aquecimento fora da gravação.
+5. **O "Comece aqui" do README usa `go run ./cmd/...`.** Isso só funciona dentro do repo do Rootline.
+   Todos os agentes usaram o `go install` do guia.
+6. **Sem orientação quando não há sugestão ou a sugerida dá `inconclusive`.** O "compare as colunas
+   de início e sumiço" não diz como decidir. No app-01, a causa estava na 2ª linha, e só a iniciativa
+   do agente a achou.
+7. **Dicas que não cabem no caso.** A dica do teto fala do N+1 quando ele foi pulado (app-06).
+   Timeouts do cliente não aparecem em `error_rate` (app-06). O `symptoms` sugere uma regressão só
+   de erro sem avisar que o `analyze` não a explica (app-07).
+8. **CLI em `@main` e hook em `@v0.1.0`.** Vários agentes perguntaram qual CLI combina com qual hook.
+   A tag da raiz resolve.
+
+### Correções antes da tag
+
+As lacunas 1, 3, 4, 5 e 8 foram corrigidas antes da `v0.1.0`, e as outras viraram issues próprias.
+
+| Lacuna | Correção | Conferência |
+|---|---|---|
+| 1 | O `symptoms` não sugere com Carga desigual: razão de n mediana fora de [0,8; 1,25], com pelo menos 3 operações ([ADR-0030](../adr/0030-regressao-symptoms-e-carga-desigual.md), #63). | `symptoms` repetido nas 18 gravações das rodadas 2 e 3: o app-01 em paralelo fica sem sugestão, e as outras 17 mantêm a de antes. |
+| 3 | Um span de outro banco não conta como query, qualquer que seja o tipo, e entra como ignorado na `db_spans` (#64). | Apps 04 e 09: os spans `mysql` aparecem como ignorados. Os apps 01 a 03 mantêm causa, linha e commit, e o placar do demo-app fica igual (7/7). |
+| 4, 5 e 8 | O README instala o CLI por `go install`. O guia ganhou a seção "Serviço em contêiner" e diz qual CLI lê qual hook (#65). | Um agente cego novo gravou o app-03 só com o README e o guia novos. Não houve atrito de Collector, permissão ou endpoint, e a causa saiu certa. |
+
+O mesmo agente achou de novo a lacuna 2: p50 4,3x marcado como "no". A diferença absoluta é de 2,8 ms,
+abaixo dos 5 ms da regra, e a tabela não diz isso (#66).
 
 ## Próximos passos
 
