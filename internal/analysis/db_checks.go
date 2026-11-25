@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
@@ -27,6 +28,10 @@ const (
 const supportedDBSystem = "postgresql"
 
 const guide = "docs/guia-instrumentacao.md"
+
+// compatibleHook is the major.minor of the hook whose attributes this analyze reads. Before 1.0 an
+// incompatible change to them bumps the minor, so any patch of it is compatible (ADR-0029).
+const compatibleHook = "0.1"
 
 // dbChecks are the caller_hook and db_spans checks over the traces of the bad version (ADR-0027,
 // ADR-0029): which database spans Rootline recognized, which it ignored, and how many carry the
@@ -99,6 +104,9 @@ func dbChecks(bad []versionTrace) (Check, Check) {
 	case withStack < queries:
 		hook.Hint = "Some database spans have no app stack: part of the queries bypass the instrumented driver or the hook. See " + guide + "."
 	}
+	if older, newer := incompatibleHooks(versions); len(older)+len(newer) > 0 {
+		hook.Hint = joinHints(hook.Hint, incompatibleHint(older, newer))
+	}
 	return hook, db
 }
 
@@ -136,4 +144,50 @@ func hookVersions(seen map[string]bool) string {
 		return "hook version " + vs[0]
 	}
 	return "hook versions " + strings.Join(vs, ", ")
+}
+
+// incompatibleHooks splits, sorted, the seen hook versions whose major.minor is not
+// compatibleHook into older (or unreadable) and newer ones. A leading "v" is accepted.
+func incompatibleHooks(seen map[string]bool) (older, newer []string) {
+	want := majorMinor(compatibleHook)
+	for v := range seen {
+		got := majorMinor(strings.TrimPrefix(v, "v"))
+		switch {
+		case got == want:
+		case got[0] > want[0] || got[0] == want[0] && got[1] > want[1]:
+			newer = append(newer, v)
+		default:
+			older = append(older, v)
+		}
+	}
+	sort.Strings(older)
+	sort.Strings(newer)
+	return older, newer
+}
+
+// majorMinor reads "X.Y[.Z]"; an unreadable version is {-1, -1}, older than any.
+func majorMinor(v string) [2]int {
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 2 {
+		return [2]int{-1, -1}
+	}
+	x, err1 := strconv.Atoi(parts[0])
+	y, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return [2]int{-1, -1}
+	}
+	return [2]int{x, y}
+}
+
+func incompatibleHint(older, newer []string) string {
+	var hints []string
+	if len(newer) > 0 {
+		hints = append(hints, fmt.Sprintf("Hook version %s is incompatible with this analyze, which reads hook %s.x; upgrade rootline to a release that reads it.",
+			strings.Join(newer, ", "), compatibleHook))
+	}
+	if len(older) > 0 {
+		hints = append(hints, fmt.Sprintf("Hook version %s is incompatible with this analyze, which reads hook %s.x; update the hook in the app with go get github.com/MarcosAAlbanoJunior/rootline/hook@v%s.",
+			strings.Join(older, ", "), compatibleHook, compatibleHook))
+	}
+	return strings.Join(hints, " ")
 }
