@@ -36,7 +36,8 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		good = tracesOf(byTrace, s, s.BaselineVersion)
 	}
 	regCheck, errCheck := regressionChecks(s, bad, good)
-	res.Checks = append(res.Checks, regCheck, errCheck)
+	hookCheck, dbCheck := dbChecks(bad)
+	res.Checks = append(res.Checks, regCheck, errCheck, hookCheck, dbCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
 			s.Service, s.Operation.Method, s.Operation.Route, s.BadVersion))
