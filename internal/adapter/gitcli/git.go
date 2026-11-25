@@ -243,6 +243,23 @@ func (g *Git) RevList(base, bad string) ([]string, error) {
 	return strings.Fields(string(out)), nil
 }
 
+// HasCommit reports whether sha names a commit of the repository. A value that is not a SHA (a
+// service.version such as "1.2.0") is not a commit.
+func (g *Git) HasCommit(sha string) (bool, error) {
+	if ValidateSHA(sha) != nil {
+		return false, nil
+	}
+	_, err := g.run("rev-parse", "--verify", "--quiet", sha+"^{commit}")
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 { // --quiet: unknown object, nothing printed
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // ChangedLines returns, per file, the new-side line ranges [start,end] changed by commit.
 func (g *Git) ChangedLines(commit string) (map[string][][2]int, error) {
 	if err := ValidateSHA(commit); err != nil {

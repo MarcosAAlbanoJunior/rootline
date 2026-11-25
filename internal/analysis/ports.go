@@ -22,6 +22,8 @@ type Git interface {
 	ResolvePath(sha, modulePath, relFile string) (string, error)
 	RevList(base, bad string) ([]string, error)
 	ChangedLines(commit string) (map[string][][2]int, error)
+	// HasCommit reports whether sha names a commit of the repository.
+	HasCommit(sha string) (bool, error)
 }
 
 // RouteLocator is an optional capability of a CodeIndex: the level-2 location of ADR-0002. It maps

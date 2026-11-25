@@ -48,13 +48,18 @@ func tracesFile(t *testing.T, sha string) string {
 	return p
 }
 
-func TestRun_AnalyzeWritesResultJSONAndExitsZero(t *testing.T) {
+func analyzeArgs(t *testing.T, extra ...string) []string {
+	t.Helper()
 	parts := strings.SplitN(fixtureRepo(t), "|", 2)
 	repo, sha := parts[0], parts[1]
+	return append([]string{"analyze", "--traces", tracesFile(t, sha), "--repo", repo, "--service", "demo-app",
+		"--operation", "GET /customers/{id}/orders", "--bad-version", sha}, extra...)
+}
+
+func TestRun_AnalyzeWithFormatJSONWritesResultWithChecksAndExitsZeroWhenInconclusive(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"analyze", "--traces", tracesFile(t, sha), "--repo", repo, "--service", "demo-app",
-		"--operation", "GET /customers/{id}/orders", "--bad-version", sha}, &stdout, &stderr)
+	code := run(analyzeArgs(t, "--format", "json"), &stdout, &stderr)
 
 	if code != 0 {
 		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
@@ -63,8 +68,36 @@ func TestRun_AnalyzeWritesResultJSONAndExitsZero(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &m); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout.String())
 	}
-	if m["schema_version"] != "0" || m["mode"] != "detectors_only" || m["status"] != "inconclusive" {
+	if m["schema_version"] != "1" || m["mode"] != "detectors_only" || m["status"] != "inconclusive" {
 		t.Errorf("unexpected result: %v", m)
+	}
+	if checks, _ := m["checks"].([]any); len(checks) == 0 {
+		t.Errorf("checks = %v, want the checks of the analysis", m["checks"])
+	}
+}
+
+func TestRun_AnalyzePrintsTextByDefault(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := run(analyzeArgs(t), &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "# demo-app GET /customers/{id}/orders") || !strings.Contains(out, "## Inconclusive") ||
+		!strings.Contains(out, "## Checks") {
+		t.Errorf("stdout is not the text report:\n%s", out)
+	}
+}
+
+func TestRun_AnalyzeRejectsAnUnknownFormat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(analyzeArgs(t, "--format", "yaml"), &stdout, &stderr); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "--format") {
+		t.Errorf("stdout=%q stderr=%q, want the error on stderr only", stdout.String(), stderr.String())
 	}
 }
 
