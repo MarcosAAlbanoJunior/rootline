@@ -97,17 +97,18 @@ func TestRender_InconclusiveResultListsSkippedChecksFirst(t *testing.T) {
 
 func ptr(v float64) *float64 { return &v }
 
-func TestRenderSymptoms_TableSuggestionAndCommand(t *testing.T) {
+func TestRenderSymptoms_TableMarksSuggestionAndCommand(t *testing.T) {
 	var got bytes.Buffer
 	rep := analysis.SymptomsReport{
-		Service: "api", BaselineVersion: baseSHA, BadVersion: badSHA, VersionOrder: analysis.OrderTime,
+		Service: "api", BaselineVersion: baseSHA, BadVersion: badSHA, VersionOrder: analysis.OrderTime, Generalized: true,
 		Notices: []string{"The baseline is 222222222222 because it appeared first in the traces."},
 		Operations: []analysis.OperationSymptom{
 			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/orders"}, EnoughSample: true, Regression: analysis.RegressionLatency,
 				Baseline: analysis.VersionStats{N: 40, P50: 10, P95: 12}, Bad: analysis.VersionStats{N: 38, P50: 100, P95: 130, ErrorRate: 0.05},
-				NRatio: ptr(0.95), P50Ratio: ptr(10), P95Ratio: ptr(10.83)},
+				NRatio: ptr(0.95), P50Ratio: ptr(10), P95Ratio: ptr(10.83), OnsetS: ptr(12.5), CeilingMs: ptr(10000)},
 			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/health"}, EnoughSample: false,
-				Baseline: analysis.VersionStats{N: 3, P50: 1, P95: 1}, Bad: analysis.VersionStats{}},
+				Baseline: analysis.VersionStats{N: 40, P50: 1, P95: 1}, Bad: analysis.VersionStats{N: 1, P50: 2, P95: 2},
+				NRatio: ptr(0.025), P50Ratio: ptr(2), P95Ratio: ptr(2), NDrop: true},
 		},
 		Suggested: &analysis.OperationRef{Method: "GET", Route: "/orders"},
 	}

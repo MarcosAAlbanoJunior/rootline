@@ -32,12 +32,15 @@ type SymptomsQuery struct {
 
 // SymptomsReport compares every entry operation of a service between two versions (ADR-0028).
 type SymptomsReport struct {
-	Service         string             `json:"service"`
-	BaselineVersion string             `json:"baseline_version"`
-	BadVersion      string             `json:"bad_version"`
-	VersionOrder    string             `json:"version_order"`
-	Notices         []string           `json:"notices"`
-	Operations      []OperationSymptom `json:"operations"`
+	Service         string   `json:"service"`
+	BaselineVersion string   `json:"baseline_version"`
+	BadVersion      string   `json:"bad_version"`
+	VersionOrder    string   `json:"version_order"`
+	Notices         []string `json:"notices"`
+	// Generalized says that at least 75% of the operations with the minimum sample regressed
+	// together, which usually points to a saturated shared resource (ADR-0028).
+	Generalized bool               `json:"generalized"`
+	Operations  []OperationSymptom `json:"operations"`
 	// Suggested is the operation to analyze, a suggestion and never the origin; nil without one.
 	Suggested *OperationRef `json:"suggested"`
 }
@@ -59,7 +62,23 @@ type OperationSymptom struct {
 	P95Ratio     *float64     `json:"p95_ratio"`
 	EnoughSample bool         `json:"enough_sample"`
 	Regression   string       `json:"regression"` // the regression type, "" without one
+	// NDrop marks an n ratio under 50%: requests may be stuck without becoming spans, or the load
+	// differed.
+	NDrop bool `json:"n_drop"`
+	// OnsetS is when the regression began: the 3rd trace of the bad version above the baseline
+	// p95, in seconds since the first trace of the bad version; nil when there is no such trace.
+	OnsetS *float64 `json:"onset_s"`
+	// CeilingMs is the duration at which the traces of the bad version stop, when they have a
+	// ceiling (CeilingOf).
+	CeilingMs *float64 `json:"ceiling_ms"`
 }
+
+// Thresholds of the generalized regression (ADR-0028).
+const (
+	GeneralizedShare = 0.75 // of the operations with the minimum sample that regressed
+	StandOutRatio    = 10.0 // the largest p50 ratio over the second one
+	onsetSlowTraces  = 3    // the onset is the 3rd trace above the baseline p95
+)
 
 // VersionInfo describes one version found in the traces of a service.
 type VersionInfo struct {
@@ -124,8 +143,9 @@ func FindSymptoms(spans []trace.Span, q SymptomsQuery, h History) (SymptomsRepor
 		return SymptomsReport{}, err
 	}
 
-	samples := map[OperationRef]*[2]VersionSample{}
+	byOp := map[OperationRef]*[2][]trace.Span{}
 	var ops []OperationRef
+	var badStart time.Time
 	for _, r := range roots {
 		i := -1
 		switch r.root.Version {
@@ -133,37 +153,104 @@ func FindSymptoms(spans []trace.Span, q SymptomsQuery, h History) (SymptomsRepor
 			i = 0
 		case rep.BadVersion:
 			i = 1
+			if badStart.IsZero() || r.root.Start.Before(badStart) {
+				badStart = r.root.Start
+			}
 		}
 		if i < 0 {
 			continue
 		}
-		s, ok := samples[r.op]
+		v, ok := byOp[r.op]
 		if !ok {
-			s = &[2]VersionSample{}
-			samples[r.op] = s
+			v = &[2][]trace.Span{}
+			byOp[r.op] = v
 			ops = append(ops, r.op)
 		}
-		s[i].DurationsMs = append(s[i].DurationsMs, durationMs(r.root))
-		if r.root.Failed() {
-			s[i].Errors++
-		}
+		v[i] = append(v[i], r.root)
 	}
 
 	for _, op := range ops {
-		s := samples[op]
-		r := Regress(s[0], s[1])
-		rep.Operations = append(rep.Operations, OperationSymptom{
+		v := byOp[op]
+		base, bad := rootSample(v[0]), rootSample(v[1])
+		r := Regress(base, bad)
+		o := OperationSymptom{
 			OperationRef: op, Baseline: r.Baseline, Bad: r.Bad, EnoughSample: r.Enough,
 			NRatio: finite(r.NRatio()), P50Ratio: finite(r.P50Ratio()), P95Ratio: finite(r.P95Ratio()),
 			Regression: r.Type(),
-		})
+		}
+		o.NDrop = r.Baseline.N > 0 && r.NRatio() < disappearanceRatio
+		if r.Baseline.N > 0 {
+			o.OnsetS = onset(v[1], r.Baseline.P95, badStart)
+		}
+		if c := CeilingOf(bad.DurationsMs); c.Found {
+			at := c.AtMs
+			o.CeilingMs = &at
+		}
+		rep.Operations = append(rep.Operations, o)
 	}
 	sortOperations(rep.Operations)
-	if len(rep.Operations) > 0 && rep.Operations[0].Regression != "" {
-		top := rep.Operations[0].OperationRef
-		rep.Suggested = &top
-	}
+	rep.Generalized, rep.Suggested = suggest(rep.Operations)
 	return rep, nil
+}
+
+func rootSample(roots []trace.Span) VersionSample {
+	var s VersionSample
+	for _, r := range roots {
+		s.DurationsMs = append(s.DurationsMs, durationMs(r))
+		if r.Failed() {
+			s.Errors++
+		}
+	}
+	return s
+}
+
+// onset is the time from the start of the bad version to the 3rd trace of the operation above the
+// baseline p95, in seconds; nil without three such traces.
+func onset(bad []trace.Span, baselineP95 float64, start time.Time) *float64 {
+	sorted := append([]trace.Span(nil), bad...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start.Before(sorted[j].Start) })
+	slow := 0
+	for _, r := range sorted {
+		if durationMs(r) > baselineP95 {
+			slow++
+			if slow == onsetSlowTraces {
+				s := r.Start.Sub(start).Seconds()
+				return &s
+			}
+		}
+	}
+	return nil
+}
+
+// suggest applies the suggestion rule of ADR-0028 to the sorted operations. Out of a generalized
+// regression, the regressed operation with the largest p50 ratio is suggested; in one, only when it
+// stands out, at least 10x the second. Operations below the minimum sample never compete.
+func suggest(ops []OperationSymptom) (generalized bool, suggested *OperationRef) {
+	var eligible int
+	var regressed []OperationSymptom
+	for _, o := range ops {
+		if !o.EnoughSample {
+			continue
+		}
+		eligible++
+		if o.Regression != "" {
+			regressed = append(regressed, o)
+		}
+	}
+	if len(regressed) == 0 {
+		return false, nil
+	}
+	generalized = eligible >= 2 && float64(len(regressed)) >= GeneralizedShare*float64(eligible)
+	top := regressed[0]
+	if generalized && len(regressed) > 1 {
+		// Raw ratios: a zero baseline p50 gives +Inf, which stands out unless the second is too.
+		first, second := rawP50Ratio(top), rawP50Ratio(regressed[1])
+		if math.IsInf(second, 1) || first < StandOutRatio*second {
+			return generalized, nil
+		}
+	}
+	ref := top.OperationRef
+	return generalized, &ref
 }
 
 // sortOperations puts the regressed operations first, then the others with the minimum sample,
