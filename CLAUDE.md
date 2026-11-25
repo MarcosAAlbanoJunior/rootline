@@ -40,6 +40,6 @@ identificadores exportados ficam: são o contrato do godoc.
 
 ## Arquitetura
 
-Domínio (`internal/trace`, `analysis`, `detector`, `correlation`, `evaluation`) importa só a stdlib e
+Domínio (`internal/trace`, `analysis`, `detector`, `correlation`, `evaluation`, `explain`) importa só a stdlib e
 os próprios pacotes de domínio (depguard garante). Adapters ficam em `internal/adapter/...`.
 Sem pacotes `util`, `common` ou `helpers`.
