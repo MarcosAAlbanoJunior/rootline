@@ -84,3 +84,33 @@ func TestRead_MalformedLineReportsLineNumberAndNoPartialResult(t *testing.T) {
 		t.Errorf("no partial result expected, got %d spans", len(spans))
 	}
 }
+
+func TestRead_SpanStatusCode(t *testing.T) {
+	line := func(status string) string {
+		return `{"resourceSpans":[{"resource":{"attributes":[]},"scopeSpans":[{"scope":{"name":"s"},"spans":[` +
+			`{"traceId":"t","spanId":"a","name":"GET /x","kind":2` + status + `}]}]}]}` + "\n"
+	}
+	for _, tc := range []struct {
+		name, status string
+		want         int
+	}{
+		{"absent", "", trace.StatusUnset},
+		{"empty", `,"status":{}`, trace.StatusUnset},
+		{"error as number", `,"status":{"code":2,"message":"boom"}`, trace.StatusError},
+		{"ok as number", `,"status":{"code":1}`, trace.StatusOK},
+		{"error as enum name", `,"status":{"code":"STATUS_CODE_ERROR"}`, trace.StatusError},
+		{"error as quoted number", `,"status":{"code":"2"}`, trace.StatusError},
+		{"unknown name is unset", `,"status":{"code":"STATUS_CODE_WHATEVER"}`, trace.StatusUnset},
+		{"float is unset", `,"status":{"code":2.5}`, trace.StatusUnset},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spans, err := otlpfile.Read(strings.NewReader(line(tc.status)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spans[0].StatusCode != tc.want {
+				t.Errorf("StatusCode = %d, want %d", spans[0].StatusCode, tc.want)
+			}
+		})
+	}
+}
