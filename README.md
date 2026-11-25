@@ -5,6 +5,19 @@ Dado um sintoma (um serviço e uma rota que pioraram entre duas versões), ela c
 OpenTelemetry, o código-fonte e o histórico do git, e aponta a causa (por exemplo, um N+1), a
 função e a linha onde ela está e o commit que a introduziu.
 
+## Comece aqui
+
+1. Instale o hook no seu serviço e grave as duas versões com o Collector, seguindo o
+   [guia de instrumentação](docs/guia-instrumentacao.md). Para experimentar sem um serviço seu, grave
+   um cenário do demo-app (precisa de Docker):
+   `go run ./cmd/rootline-eval record --scenario eval/fixtures/scenarios/n1-basic --source . --out out/n1-basic`.
+2. Ache a operação que regrediu: `go run ./cmd/rootline symptoms --traces out/n1-basic/traces.jsonl --repo out/n1-basic/repo`.
+   Ele sugere uma operação e imprime o `analyze` dela. Sem sugestão, pegue a operação na tabela e os SHAs no cabeçalho.
+3. Analise: `go run ./cmd/rootline analyze --traces out/n1-basic/traces.jsonl --repo out/n1-basic/repo --service demo-app --operation "GET /customers/{id}/orders" --bad-version <sha-ruim> --baseline-version <sha-bom>`.
+4. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. A seção **Checks**
+   diz o que foi verificado, o que foi pulado e, com uma dica, o que fazer. As
+   [limitações atuais](docs/guia-instrumentacao.md#limitações-atuais) estão no guia.
+
 ## Como funciona
 
 ```mermaid
