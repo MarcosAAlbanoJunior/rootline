@@ -31,9 +31,10 @@ type VersionSample struct {
 
 // VersionStats summarizes a VersionSample.
 type VersionStats struct {
-	N         int
-	P50, P95  float64
-	ErrorRate float64
+	N         int     `json:"n"`
+	P50       float64 `json:"p50_ms"`
+	P95       float64 `json:"p95_ms"`
+	ErrorRate float64 `json:"error_rate"`
 }
 
 // Regression is the outcome of the rule for one entry operation. Enough says both versions reached

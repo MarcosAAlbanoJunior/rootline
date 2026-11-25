@@ -260,6 +260,26 @@ func (g *Git) HasCommit(sha string) (bool, error) {
 	return true, nil
 }
 
+// IsAncestor reports whether commit a is an ancestor of commit d. A version that is not a commit
+// of the repository is no one's ancestor.
+func (g *Git) IsAncestor(a, d string) (bool, error) {
+	for _, sha := range []string{a, d} {
+		ok, err := g.HasCommit(sha)
+		if err != nil || !ok {
+			return false, err
+		}
+	}
+	_, err := g.run("merge-base", "--is-ancestor", a, d)
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 { // not an ancestor
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // ChangedLines returns, per file, the new-side line ranges [start,end] changed by commit.
 func (g *Git) ChangedLines(commit string) (map[string][][2]int, error) {
 	if err := ValidateSHA(commit); err != nil {
