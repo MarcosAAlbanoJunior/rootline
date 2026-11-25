@@ -195,6 +195,19 @@ com amostra mínima) ou ausente. Define o início do intervalo do diff.
 - Evitar: "baseline" nos docs em português.
 - No código: `Baseline`
 
+## Regressão
+Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0028):
+amostra mínima nas duas versões e latência (p50 ou p95) ou taxa de erro acima dos limiares. Tem
+tipo: latência, erro ou os dois.
+- Evitar: "piorou" solto, sem a regra; "degradação".
+- Relacionados: [Regressão generalizada](#regressão-generalizada), [Sintoma](#sintoma), [Referência](#referência)
+
+## Regressão generalizada
+Quando quase todas as operações de entrada do serviço regridem juntas (≥ 75%), sinal típico de um
+recurso compartilhado saturado. Só há operação sugerida quando uma delas destoa, sempre como
+sugestão, nunca como origem.
+- Relacionados: [Regressão](#regressão)
+
 ## Sintoma
 Entrada da análise: serviço + operação de entrada + janela ruim (de versão única, ou filtrada por
 `--bad-version`). Na v1, só latência.
@@ -205,3 +218,16 @@ A suposição do detector ou da localização que um cenário quebra (ex.: "o lo
 da query"). Obrigatória em todo cenário: cenário que não quebra nada só infla o placar.
 - Relacionados: [Cenário](#cenário), `eval/README.md`
 - No código: `Scenario.Assumption` (`assumption` no `scenario.json`)
+
+## Teto
+Duração em que boa parte dos traces de uma operação para, na versão ruim (≥ 20% a 2% da duração
+máxima), em geral por um timeout. Esses traces têm menos spans filhos do que o trabalho real.
+- Relacionados: [Regressão](#regressão), [Verificação](#verificação)
+
+## Verificação
+Um detector ou pré-condição avaliado na análise e relatado no Resultado, com status (rodou, pulou,
+não se aplica), o fato observado e a dica do que fazer. Explica por que o Resultado é o que é,
+principalmente quando ele é inconclusivo.
+- Evitar: "aviso" para isso (aviso é só sobre o resultado em si); "diagnóstico".
+- Relacionados: [Resultado](#resultado), [Inconclusivo](#inconclusivo)
+- No código: `Check` (campo `checks` do Resultado)
