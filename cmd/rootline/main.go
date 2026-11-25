@@ -21,15 +21,22 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = `usage: rootline analyze --traces <file.jsonl> --repo <dir> --service <name> --operation "<METHOD> <route>" --bad-version <sha> [--baseline-version <sha>] [--plans <plans.jsonl>] [--format text|json]`
+const usage = `usage:
+  rootline symptoms --traces <file.jsonl> [--service <name>] [--repo <dir>] [--baseline-version <sha>] [--bad-version <sha>] [--format text|json]
+  rootline analyze  --traces <file.jsonl> --repo <dir> --service <name> --operation "<METHOD> <route>" --bad-version <sha> [--baseline-version <sha>] [--plans <plans.jsonl>] [--format text|json]`
 
 // run executes the CLI and returns the exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "analyze" {
-		fmt.Fprintln(stderr, usage)
-		return 2
+	if len(args) > 0 {
+		switch args[0] {
+		case "analyze":
+			return analyze(args[1:], stdout, stderr)
+		case "symptoms":
+			return symptoms(args[1:], stdout, stderr)
+		}
 	}
-	return analyze(args[1:], stdout, stderr)
+	fmt.Fprintln(stderr, usage)
+	return 2
 }
 
 type fileSource []trace.Span

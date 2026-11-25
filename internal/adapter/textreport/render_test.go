@@ -94,3 +94,37 @@ func TestRender_InconclusiveResultListsSkippedChecksFirst(t *testing.T) {
 		Warnings: []string{"no traces of the operation in baseline version 2222222"},
 	})
 }
+
+func ptr(v float64) *float64 { return &v }
+
+func TestRenderSymptoms_TableSuggestionAndCommand(t *testing.T) {
+	var got bytes.Buffer
+	rep := analysis.SymptomsReport{
+		Service: "api", BaselineVersion: baseSHA, BadVersion: badSHA, VersionOrder: analysis.OrderTime,
+		Notices: []string{"The baseline is 222222222222 because it appeared first in the traces."},
+		Operations: []analysis.OperationSymptom{
+			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/orders"}, EnoughSample: true, Regression: analysis.RegressionLatency,
+				Baseline: analysis.VersionStats{N: 40, P50: 10, P95: 12}, Bad: analysis.VersionStats{N: 38, P50: 100, P95: 130, ErrorRate: 0.05},
+				NRatio: ptr(0.95), P50Ratio: ptr(10), P95Ratio: ptr(10.83)},
+			{OperationRef: analysis.OperationRef{Method: "GET", Route: "/health"}, EnoughSample: false,
+				Baseline: analysis.VersionStats{N: 3, P50: 1, P95: 1}, Bad: analysis.VersionStats{}},
+		},
+		Suggested: &analysis.OperationRef{Method: "GET", Route: "/orders"},
+	}
+	if err := textreport.RenderSymptoms(&got, rep, "rootline analyze --operation 'GET /orders'"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("testdata", "symptoms.md")
+	if *update {
+		if err := os.WriteFile(path, got.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Errorf("text differs from %s (rerun with -update to accept):\n%s", path, got.String())
+	}
+}

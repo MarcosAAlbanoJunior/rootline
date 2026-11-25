@@ -229,3 +229,30 @@ func TestHasCommit_OutsideARepositoryIsAnError(t *testing.T) {
 		t.Fatal("want an error outside a repository")
 	}
 }
+
+func TestIsAncestor_FollowsTheHistory(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	c1 := r.commit("c1")
+	r.write("a.txt", "b\n")
+	c2 := r.commit("c2")
+	g := gitcli.New(r.dir)
+
+	for _, tc := range []struct {
+		a, d string
+		want bool
+	}{
+		{c1, c2, true},
+		{c2, c1, false},
+		{"0123456789abcdef0123456789abcdef01234567", c2, false}, // not a commit of the repository
+		{"1.2.0", c2, false},
+	} {
+		got, err := g.IsAncestor(tc.a, tc.d)
+		if err != nil {
+			t.Fatalf("IsAncestor(%s, %s): %v", tc.a, tc.d, err)
+		}
+		if got != tc.want {
+			t.Errorf("IsAncestor(%s, %s) = %v, want %v", tc.a, tc.d, got, tc.want)
+		}
+	}
+}
