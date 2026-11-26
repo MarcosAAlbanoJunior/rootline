@@ -13,7 +13,7 @@ import (
 )
 
 // The slow endpoint takes slowDelay on average, from slowDelay-slowSpread to slowDelay+slowSpread
-// in turn: a constant delay would look like a timeout cutting the requests (ADR-0030).
+// in turn: a constant delay would look like a timeout cutting the requests (ADR-0032).
 const (
 	slowDelay  = 100 * time.Millisecond
 	slowSpread = 20 * time.Millisecond

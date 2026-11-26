@@ -2,7 +2,7 @@ package analysis
 
 import "fmt"
 
-// Ceiling thresholds (ADR-0030): a share of the traces of a version stopping within a band below
+// Ceiling thresholds (ADR-0032): a share of the traces of a version stopping within a band below
 // the longest one.
 const (
 	CeilingMinShare = 0.20
@@ -25,7 +25,7 @@ type Ceiling struct {
 // at reports whether a duration is within the band of the ceiling.
 func (c Ceiling) at(ms float64) bool { return c.Found && ms >= (1-CeilingBand)*c.AtMs }
 
-// CeilingOf applies the ceiling rule of ADR-0030 to the durations of one version: at least 20% of
+// CeilingOf applies the ceiling rule of ADR-0032 to the durations of one version: at least 20% of
 // the traces within 2% of the longest. It needs the minimum sample of the regression rule, since a
 // handful of traces always cluster somewhere. All of them stopping together is a ceiling too: every
 // request hit the timeout.

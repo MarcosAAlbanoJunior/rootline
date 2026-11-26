@@ -36,7 +36,7 @@ func traceShape(s Symptom, good, bad []versionTrace) shapeRun {
 		c.Reason = "no latency regression: the time breakdown only splits a slowdown"
 		return shapeRun{check: c}
 	}
-	// The ceiling is a property of the bad version (ADR-0030); the baseline is taken as it is.
+	// The ceiling is a property of the bad version (ADR-0032); the baseline is taken as it is.
 	_, badKept := splitAtCeiling(bad)
 	run := shapeRun{bad: shapeTraces(badKept)}
 	b := detector.TimeBreakdown(shapeTraces(good), run.bad)
