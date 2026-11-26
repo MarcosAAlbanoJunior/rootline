@@ -33,6 +33,14 @@ com dados, carga e gabarito reprodutíveis. Unidade da avaliação.
 - Relacionados: [Gabarito](#gabarito), [ADR-0004](docs/adr/0004-cenarios-de-avaliacao-como-commits-reais.md)
 - No código: `Scenario`
 
+## Chamada externa mais lenta
+Causa em que uma dependência que não é de banco (HTTP, RPC) explica pelo menos 80% da diferença da
+divisão do tempo, com o tempo por chamada pelo menos dobrado e a presença quase igual. O alvo é a
+dependência. A localização é de nível 2, porque o span não tem pilha da aplicação.
+- Evitar: "dependência lenta" (solto), que também descreve um banco mais lento, que nunca vira Causa.
+- Relacionados: [Divisão do tempo](#divisão-do-tempo), [Dependência](#dependência), [ADR-0031](docs/adr/0031-detector-de-forma-do-trace.md)
+- No código: tipo de causa `slow_call`
+
 ## Conjunto reservado
 Cenários da avaliação escritos depois de congelar os detectores e nunca usados para ajustá-los.
 - Evitar: "test set", "holdout" nos docs.
@@ -43,6 +51,14 @@ Relação entre um commit e uma candidata, por tipo de toque: pilha, query, sche
 configuração/dependências (peso baixo). Cada toque vira uma evidência; a falta de toque só reduz o score.
 - Relacionados: [ADR-0006](docs/adr/0006-correlacao-entre-candidata-e-commit.md)
 - No código: `Correlation`, com `Touch` (`StackTouch`, `QueryTouch`, `SchemaTouch`, `ConfigTouch`)
+
+## Dependência
+O destino de um span de cliente na divisão do tempo: o sistema do banco, o `host:porta` do HTTP, o
+serviço RPC ou, por último, o nome do span. A operação (query normalizada, método HTTP) é o detalhe
+dentro dela.
+- Evitar: "serviço externo" (o banco também é dependência), "endpoint".
+- Relacionados: [Divisão do tempo](#divisão-do-tempo), [ADR-0031](docs/adr/0031-detector-de-forma-do-trace.md)
+- No código: `Dependency`
 
 ## Detector
 Regra determinística da fase 1 que examina um trace e emite candidatas de um tipo de regressão (ex.: N+1).
@@ -56,6 +72,15 @@ parece N+1). Um distrator de código é declarado no `scenario.json` e marcado c
 ele conta como falso positivo de detector.
 - Relacionados: [Falso positivo de detector](#falso-positivo-de-detector), [Gabarito](#gabarito), [ADR-0022](docs/adr/0022-distrator-declarado-no-cenario.md)
 - No código: `Distractor`
+
+## Divisão do tempo
+A diferença da média por trace de uma operação entre a referência e a versão ruim, repartida entre
+as dependências e o tempo próprio. Deixa de fora os traces no teto e os 5% mais lentos de cada versão.
+Sai como evidência em todo Resultado com Regressão de latência e só vira Candidata em dois mecanismos:
+chamada externa mais lenta e trabalho a mais por requisição. É o que o detector de forma calcula.
+- Evitar: "forma" (solto), que colide com a [Forma de paginação](#forma-de-paginação); "breakdown" nos docs.
+- Relacionados: [Dependência](#dependência), [Tempo próprio](#tempo-próprio), [Presença](#presença), [ADR-0031](docs/adr/0031-detector-de-forma-do-trace.md)
+- No código: evidência `time_breakdown`, Verificação `trace_shape`
 
 ## Evidência
 Fato verificável com ID estável que sustenta uma candidata ou um resultado: span, query normalizada,
@@ -189,6 +214,11 @@ Os frames de uma pilha de chamadas que pertencem ao módulo do serviço analisad
 bibliotecas. Capturada pelo hook de chamador.
 - No código: `AppStack`
 
+## Presença
+A fração dos traces de uma operação (fora do teto) em que uma dependência aparece. É diferente das
+chamadas por trace: chamadas a mais no mesmo trace são território do N+1.
+- Relacionados: [Trabalho a mais por requisição](#trabalho-a-mais-por-requisição), [Divisão do tempo](#divisão-do-tempo)
+
 ## Resultado
 O que o Rootline devolve: causa provável (ou inconclusivo), evidências citadas, correção sugerida,
 modo de análise e confiança.
@@ -225,10 +255,25 @@ da query"). Obrigatória em todo cenário: cenário que não quebra nada só inf
 - Relacionados: [Cenário](#cenário), `eval/README.md`
 - No código: `Scenario.Assumption` (`assumption` no `scenario.json`)
 
+## Tempo próprio
+O tempo do span raiz de uma operação que não está coberto por nenhum filho direto: a duração da raiz
+menos a união dos intervalos dos filhos. CPU, lock ou espera não instrumentada aparecem aqui. Na
+divisão do tempo, entra como uma linha, mas nunca vira Causa.
+- Relacionados: [Divisão do tempo](#divisão-do-tempo), [ADR-0031](docs/adr/0031-detector-de-forma-do-trace.md)
+
 ## Teto
 Duração em que boa parte dos traces de uma operação para, na versão ruim (≥ 20% a 2% da duração
 máxima), em geral por um timeout. Esses traces têm menos spans filhos do que o trabalho real.
 - Relacionados: [Regressão](#regressão), [Verificação](#verificação)
+
+## Trabalho a mais por requisição
+Causa em que a presença de uma dependência sobe pelo menos 25 pontos percentuais e ela explica pelo
+menos 80% da diferença da divisão do tempo, como um cache que passou a furar sempre. O alvo é a
+dependência. A localização é o frame da aplicação mais interno comum às pilhas das operações que
+passaram a aparecer em mais traces.
+- Evitar: "query nova" (a operação pode já existir e só rodar mais vezes).
+- Relacionados: [Presença](#presença), [Divisão do tempo](#divisão-do-tempo), [ADR-0031](docs/adr/0031-detector-de-forma-do-trace.md)
+- No código: tipo de causa `added_work`
 
 ## Verificação
 Um detector ou pré-condição avaliado na análise e relatado no Resultado, com status (rodou, pulou,
