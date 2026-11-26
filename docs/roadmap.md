@@ -33,6 +33,10 @@ Itens que mudam a arquitetura passam por `/grill-me` e ganham um ADR antes dos t
    Resultado com Regressão de latência. Só promove a Candidata dois mecanismos: a chamada externa mais
    lenta (app-08) e o trabalho a mais por requisição (app-05, cache que passou a furar). Banco mais
    lento e tempo próprio maior ficam como pista (app-06, app-09, app-10, app-04).
+   **Feito** e conferido na
+   [rodada 4 do piloto](spikes/2026-11-24-piloto-apps-reais.md#rodada-4-detector-de-forma-nas-gravações-guardadas).
+   Ficou de fora a linha e o commit da chamada externa, que dependem do hook anotar spans de cliente
+   (item 6), e a função do defeito quando ela não emite span (app-05).
 5. **Sintoma de erro.** Hoje o sintoma é só latência (ADR-0005). Cobriria app-07 e app-09. Precisa
    de ADR.
 6. **Cobertura de bancos.** Hook de chamador para `database/sql` (app-04, app-09), spans do MongoDB

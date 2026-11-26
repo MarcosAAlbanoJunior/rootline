@@ -2,7 +2,7 @@
 id: SPIKE-2026-11-24-piloto-apps-reais
 title: Piloto do Rootline em dez apps reais escritos por quem não conhece a ferramenta
 status: Concluído
-summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Rodada 3 (10 apps, usuário cego só com README e guia) - 3/3 causas, 0/7 falsos positivos, sem script externo; o symptoms sugeriu errado no app-01 sob gravação ruidosa. Orienta o docs/roadmap.md.
+summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Rodada 3 (10 apps, usuário cego só com README e guia) - 3/3 causas, 0/7 falsos positivos, sem script externo; o symptoms sugeriu errado no app-01 sob gravação ruidosa. Rodada 4 (as 19 gravações das rodadas 2 e 3 com o detector de forma) - Candidata de forma só no app-05 e no app-08, com mecanismo e alvo certos. Orienta o docs/roadmap.md.
 ---
 
 # Piloto do Rootline em apps reais
@@ -236,6 +236,66 @@ As lacunas 1, 3, 4, 5 e 8 foram corrigidas antes da `v0.1.0`, e as outras virara
 
 O mesmo agente achou de novo a lacuna 2: p50 4,3x marcado como "no". A diferença absoluta é de 2,8 ms,
 abaixo dos 5 ms da regra, e a tabela não diz isso (#66).
+
+## Rodada 4: detector de forma nas gravações guardadas
+
+Conferência do [ADR-0031](../adr/0031-detector-de-forma-do-trace.md) (#76) antes de qualquer gravação
+nova.
+
+### Método
+
+- **Sem regravar.** As 19 gravações são as 7 da rodada 2 e as 12 da rodada 3 (as 18 do ADR-0030
+  mais o `app-03-guia`).
+- `rootline analyze --repo` em toda operação com Regressão de cada gravação e na operação analisada no
+  piloto, com as versões na ordem do git. Rootline no commit `c4028a3`.
+- **Gabaritos abertos só depois** de conferir as Candidatas de forma e o N+1 dos apps 01 a 03.
+
+### Resultado
+
+A coluna "Operação" é a do gabarito. No app-09, a do gabarito (o claim) não vira span, e a linha usa a
+operação analisada no piloto. "Dominante" é a linha da divisão do tempo que mais explica a diferença
+da média. Os caminhos de função omitem o prefixo do módulo.
+
+| Rodada | Gravação | Operação | Dominante | Promovido ou motivo | Gabarito | Confere |
+|---|---|---|---|---|---|---|
+| 2 | app-04 | `POST /v1/appointments` | tempo próprio, 78% | nada: nenhum mecanismo | lock numa linha de contador (MySQL) | sem causa errada |
+| 2 | app-05 | `GET /api/v1/links/{code}/stats` | `postgresql`, 100%; presença 53% → 100% | `added_work`: `(*StatsService).compute`, `stats.go:115`, commit certo | cache sempre furado em `(*StatsService).LinkStats`, `stats.go:90` | mecanismo, alvo e commit; função um frame abaixo |
+| 2 | app-06 | `GET /v1/traces/{traceID}` | `mongodb`, 100% | nada: banco mais lento | índice faltando no MongoDB | sem causa errada |
+| 2 | app-07 | `GET /api/v1/products/{id}/stock` | – | não se aplica: regressão só de erro | divisão por zero (5xx) | sem causa errada |
+| 2 | app-08 | `POST /rooms/{roomID}/messages` | HTTP `moderation:8090`, 99%; 3,4 → 110 ms por chamada | `slow_call`: `(*API).postMessage`, nível 2, sem commit | dependência HTTP lenta em `(*Client).Screen`, `client.go:72` | mecanismo e alvo; função é a que chama; sem commit |
+| 2 | app-09 | `GET /v1/orders/{orderID}` | `mysql`, 100% | nada: banco mais lento | pool esgotado por transação sem `Rollback` | sem causa errada |
+| 2 | app-10 | `GET /v1/tenants/{tenantID}/reports` | tempo próprio, 96% | nada: tempo próprio maior | regex compilada a cada chamada (CPU) | sem causa errada |
+| 3 | app-01-paralelo | `GET /v1/sites/{id}/devices` | `postgresql`, 100% | nada de forma: banco mais lento. Causa pelo N+1 | N+1, `service.go:38` | causa, função, linha e commit |
+| 3 | app-01-solo | `GET /v1/sites/{id}/devices` | `postgresql`, 90% | nada de forma: média +4,7 ms, abaixo da guarda de 5 ms. Causa pelo N+1 | N+1, `service.go:38` | causa, função, linha e commit |
+| 3 | app-02 | `GET .../accounts/{accountID}/statement` | – | não se aplica: sem Regressão de latência (#66). Causa pelo N+1 | N+1, `service.go:177` | causa, função, linha e commit |
+| 3 | app-03 | `GET /api/v1/books` | – | não se aplica: sem Regressão de latência (#66). Causa pelo N+1 | N+1, `store.go:225` | causa, função, linha e commit |
+| 3 | app-03-guia | `GET /api/v1/books` | – | não se aplica: sem Regressão de latência (#66). Causa pelo N+1 | N+1, `store.go:225` | causa, função, linha e commit |
+| 3 | app-04 | `POST /v1/appointments` | tempo próprio, 75% | nada: nenhum mecanismo | lock numa linha de contador (MySQL) | sem causa errada |
+| 3 | app-05 | `GET /api/v1/links/{code}/stats` | `postgresql`, 100%; presença 56% → 100% | `added_work`: `(*StatsService).compute`, `stats.go:115`, commit certo | cache sempre furado em `(*StatsService).LinkStats`, `stats.go:90` | mecanismo, alvo e commit; função um frame abaixo |
+| 3 | app-06 | `GET /v1/traces/{traceID}` | `mongodb`, 100% | nada: banco mais lento | índice faltando no MongoDB | sem causa errada |
+| 3 | app-07 | `GET /api/v1/products/{id}/stock` | – | não se aplica: regressão só de erro | divisão por zero (5xx) | sem causa errada |
+| 3 | app-08 | `POST /rooms/{roomID}/messages` | HTTP `moderation:8090`, 100%; 3,5 → 108 ms por chamada | `slow_call`: `(*API).postMessage`, nível 2, sem commit | dependência HTTP lenta em `(*Client).Screen`, `client.go:72` | mecanismo e alvo; função é a que chama; sem commit |
+| 3 | app-09 | `GET /v1/orders/{orderID}` | – (a média caiu de 126 para 64 ms) | nada: a média não acompanhou o p50 | pool esgotado por transação sem `Rollback` | sem causa errada |
+| 3 | app-10 | `GET /v1/tenants/{tenantID}/reports` | tempo próprio, 89% | nada: tempo próprio maior | regex compilada a cada chamada (CPU) | sem causa errada |
+
+- **Candidata de forma: 4 gravações, as esperadas** (app-05 e app-08, nas duas rodadas). Nas outras
+  15, nenhuma, em nenhuma das operações analisadas.
+- **Apps 01 a 03: 5 de 5** com o N+1 certo, e causa, função, arquivo:linha e commit iguais aos da
+  rodada 3.
+- **Sem causa errada** nas 10 gravações restantes, todas `inconclusive`.
+
+### O que a localização não alcança
+
+- **`added_work`.** O frame comum mais interno às agregações é a função que as executa. O defeito do
+  app-05 (a chave do cache com `time.Now()`) está na função que a chama e não emite span.
+- **`slow_call`.** O span HTTP não tem pilha: a localização é o handler, e não há commit. O gabarito
+  aponta o cliente HTTP, que o commit da regressão alterou. Anotar spans de cliente com o hook ficou
+  fora do ADR-0031.
+
+### Achado menor
+
+Quando a média sobe menos de 5 ms (app-01-solo e várias rotas do app-10), a `trace_shape` diz que "a
+média não acompanhou o p50", mas o motivo é a guarda de 5 ms.
 
 ## Próximos passos
 
