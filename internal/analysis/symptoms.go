@@ -214,7 +214,22 @@ func FindSymptoms(spans []trace.Span, q SymptomsQuery, h History) (SymptomsRepor
 	if rep.UnevenLoad {
 		rep.Suggested = nil
 	}
+	if rep.Suggested != nil && onlyErrors(rep.Operations, *rep.Suggested) {
+		rep.Notices = append(rep.Notices, fmt.Sprintf(
+			"The regression of the suggested operation %s %s is only in errors. Rootline v1 analyzes latency only and does not look for the cause of errors: expect an inconclusive Result from analyze, unless a detector finds a cause that also shows in this operation.",
+			rep.Suggested.Method, rep.Suggested.Route))
+	}
 	return rep, nil
+}
+
+// onlyErrors reports whether the operation regressed in errors and not in latency.
+func onlyErrors(ops []OperationSymptom, ref OperationRef) bool {
+	for _, o := range ops {
+		if o.OperationRef == ref {
+			return o.Regression == RegressionError
+		}
+	}
+	return false
 }
 
 func eligibleOps(ops []OperationSymptom) int {

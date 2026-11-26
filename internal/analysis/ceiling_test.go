@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,4 +130,32 @@ func TestNPlusOne_WhenEveryTraceStoppedTogetherTheyAreAllCounted(t *testing.T) {
 	c := check(t, m, "truncated_traces")
 	contains(t, c, "reason", "30 of 30 traces")
 	contains(t, c, "hint", "counted them anyway")
+}
+
+// cutRequests have no database spans, so the N+1 detector does not run: 20 of 40 stop at 1 s.
+func cutRequests(failed int) source {
+	return joined(timedTraces("good", baseline, 40, 10, 0), timedTraces("cut", bad, 20, 1000, failed), timedTraces("fast", bad, 20, 100, 0))
+}
+
+func TestTruncatedTracesCheck_DoesNotSpeakOfTheNPlusOneWhenItDidNotRun(t *testing.T) {
+	m := run(t, cutRequests(0), fakeGit{}, symptom)
+	wantStatus(t, check(t, m, "n_plus_one"), analysis.CheckSkipped)
+	c := check(t, m, "truncated_traces")
+	contains(t, c, "hint", "real latency is higher")
+	if hint := c["hint"].(string); strings.Contains(hint, "N+1") {
+		t.Errorf("hint = %q, want no word about the N+1", hint)
+	}
+}
+
+func TestErrorRateCheck_WithACeilingAndNoErrorSaysClientTimeoutsDoNotShow(t *testing.T) {
+	c := check(t, run(t, cutRequests(0), fakeGit{}, symptom), "error_rate")
+	contains(t, c, "hint", "client gave up")
+	contains(t, c, "hint", "If the ceiling")
+}
+
+func TestErrorRateCheck_SaysNothingOfClientTimeoutsWhenTheServerRecordedErrors(t *testing.T) {
+	c := check(t, run(t, cutRequests(1), fakeGit{}, symptom), "error_rate")
+	if hint := c["hint"].(string); strings.Contains(hint, "client gave up") {
+		t.Errorf("hint = %q, want no word about client timeouts", hint)
+	}
 }

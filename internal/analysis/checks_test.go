@@ -216,7 +216,12 @@ func TestErrorRateCheck_ReportsBothRatesAndSaysV1DoesNotAnalyzeErrors(t *testing
 }
 
 func TestErrorRateCheck_WithoutErrorRegressionHasNoHint(t *testing.T) {
-	c := check(t, run(t, joined(timedTraces("g", baseline, 40, 10, 0), timedTraces("b", bad, 40, 10, 0)), fakeGit{}, symptom), "error_rate")
+	// Spread durations: with all of them equal the version would have a ceiling.
+	spread := timedTraces("b", bad, 40, 10, 0)
+	for i := range spread {
+		spread[i].End = spread[i].End.Add(time.Duration(i) * time.Millisecond)
+	}
+	c := check(t, run(t, joined(timedTraces("g", baseline, 40, 10, 0), spread), fakeGit{}, symptom), "error_rate")
 	wantStatus(t, c, analysis.CheckRan)
 	if c["hint"] != "" {
 		t.Errorf("hint = %q, want none", c["hint"])

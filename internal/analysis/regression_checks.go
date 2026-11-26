@@ -84,6 +84,9 @@ func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 	return reg, errs
 }
 
+// hintClientTimeouts explains an error rate of zero next to a ceiling.
+const hintClientTimeouts = "No trace ended in error. If the ceiling of the truncated_traces check is a timeout of the client, that is expected: a request the client gave up on is usually not marked as an error on the server span."
+
 // disappearanceRatio is the n ratio under which the drop in traces is pointed out (ADR-0030).
 const disappearanceRatio = 0.5
 

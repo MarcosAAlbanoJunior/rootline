@@ -39,7 +39,11 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	ceiling, complete := splitAtCeiling(bad)
 	hookCheck, dbCheck := dbChecks(bad)
 	shape := traceShape(s, good, bad)
-	res.Checks = append(res.Checks, regCheck, errCheck, truncatedCheck(ceiling, len(bad)-len(complete)), hookCheck, dbCheck)
+	if ceiling.Found && sampleOf(bad).Errors == 0 {
+		errCheck.Hint = joinHints(errCheck.Hint, hintClientTimeouts)
+	}
+	truncated := truncatedCheck(ceiling, len(bad)-len(complete), detector.HasQuerySpans(spansOf(complete)))
+	res.Checks = append(res.Checks, regCheck, errCheck, truncated, hookCheck, dbCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
 			s.Service, s.Operation.Method, s.Operation.Route, s.BadVersion))

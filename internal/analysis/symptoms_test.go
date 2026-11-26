@@ -413,3 +413,34 @@ func TestSymptoms_AMedianAtTheEdgeOfTheBandIsComparable(t *testing.T) {
 		t.Errorf("median %v: uneven %v, suggested %+v, want comparable with a suggestion", *rep.MedianNRatio, rep.UnevenLoad, rep.Suggested)
 	}
 }
+
+func TestSymptoms_ASuggestionThatRegressedOnlyInErrorsWarnsThatAnalyzeWillBeInconclusive(t *testing.T) {
+	rep := findSymptoms(t, spansOf(
+		opTraces("api", vOld, "GET /orders", 40, 10, 0, 0),
+		opTraces("api", vNew, "GET /orders", 40, 10, 100, 8),
+	))
+
+	if rep.Suggested == nil {
+		t.Fatal("want the operation suggested")
+	}
+	if len(rep.Notices) != 1 {
+		t.Fatalf("notices = %q, want one", rep.Notices)
+	}
+	// The detectors still run, so an N+1 in the operation would be found: no promise of the Result.
+	for _, want := range []string{"errors", "inconclusive", "unless a detector"} {
+		if !strings.Contains(rep.Notices[0], want) {
+			t.Errorf("notice = %q, want it to contain %q", rep.Notices[0], want)
+		}
+	}
+}
+
+func TestSymptoms_ASuggestionThatAlsoRegressedInLatencyHasNoSuchWarning(t *testing.T) {
+	rep := findSymptoms(t, spansOf(
+		opTraces("api", vOld, "GET /orders", 40, 10, 0, 0),
+		opTraces("api", vNew, "GET /orders", 40, 100, 100, 8),
+	))
+
+	if rep.Suggested == nil || len(rep.Notices) != 0 {
+		t.Errorf("suggested %v, notices %q, want a suggestion and no notice", rep.Suggested, rep.Notices)
+	}
+}
