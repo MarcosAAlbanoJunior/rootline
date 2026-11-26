@@ -1,7 +1,7 @@
 ---
 id: ADR-0030
 title: Definir Regressão por uma regra única e só sugerir operação no rootline symptoms com carga comparável
-status: Aceito
+status: Substituído por ADR-0032
 date: 2026-11-25
 summary: Substitui o 0028 e mantém a regra dele (Regressão, teto, sumiço, sugestão, regressão generalizada). Acrescenta a Carga desigual: com 3 ou mais operações e razão de n mediana fora de [0,8; 1,25], o symptoms não sugere operação. Validado em 18 gravações das rodadas 2 e 3.
 modules: [analysis, cmd/rootline]
