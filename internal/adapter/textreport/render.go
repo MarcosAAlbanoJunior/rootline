@@ -5,6 +5,7 @@ package textreport
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/analysis"
@@ -127,6 +128,8 @@ func evidenceLine(e any) string {
 			v.ID, v.Query, v.NodeType, v.Table, v.RelTuples, v.PlanRows, v.Selectivity, v.Filter, v.TracesAffected, v.TracesTotal)
 	case analysis.StackTouchEvidence:
 		return fmt.Sprintf("%s commit %s changed %s (%s)", v.ID, short(v.Commit), v.Function, v.Strength)
+	case analysis.TimeBreakdownEvidence:
+		return breakdownLines(v)
 	case analysis.SymptomStatsEvidence:
 		return fmt.Sprintf("%s version %s: %d traces, median %.1f ms, median %d query spans",
 			v.ID, short(v.Version), v.Traces, v.DurationMsMedian, v.DBQuerySpansMedian)
@@ -140,4 +143,42 @@ func short(v string) string {
 		return v[:12]
 	}
 	return v
+}
+
+// maxOperations is how many operations of a dependency the text lists; the JSON has all of them.
+const maxOperations = 3
+
+// breakdownLines writes the time breakdown as one line and a nested line per dependency.
+func breakdownLines(v analysis.TimeBreakdownEvidence) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s time breakdown: mean per trace %.1f → %.1f ms (%+.1f ms; %d and %d traces, without the slowest 5%%)",
+		v.ID, v.BaselineMeanMs, v.BadMeanMs, v.BadMeanMs-v.BaselineMeanMs, v.BaselineMeanTraces, v.BadMeanTraces)
+	for _, d := range v.Dependencies {
+		fmt.Fprintf(&b, "\n  - %s: %.1f → %.1f ms per trace, explains %s, presence %.0f%% → %.0f%%",
+			d.Dependency, d.Baseline.MeanMs, d.Bad.MeanMs, percent(d.Explained), d.Baseline.Presence*100, d.Bad.Presence*100)
+		if d.Kind != "own" {
+			fmt.Fprintf(&b, ", %.1f → %.1f calls per trace, %.1f → %.1f ms per call",
+				d.Baseline.CallsPerTrace, d.Bad.CallsPerTrace, d.Baseline.MsPerCall, d.Bad.MsPerCall)
+		}
+		if len(d.Operations) > 0 {
+			var ops []string
+			for _, op := range d.Operations[:min(len(d.Operations), maxOperations)] {
+				ops = append(ops, fmt.Sprintf("`%s` (%.0f%% → %.0f%%)", op.Operation, op.BaselinePresence*100, op.BadPresence*100))
+			}
+			fmt.Fprintf(&b, "; operations: %s", strings.Join(ops, ", "))
+			if n := len(d.Operations) - maxOperations; n > 0 {
+				fmt.Fprintf(&b, " and %d more", n)
+			}
+		}
+	}
+	return b.String()
+}
+
+// percent rounds a fraction to a whole percent without printing "-0%" for a tiny negative one.
+func percent(f float64) string {
+	p := math.Round(f * 100)
+	if p == 0 {
+		p = 0 // drops the sign of a negative zero
+	}
+	return fmt.Sprintf("%.0f%%", p)
 }

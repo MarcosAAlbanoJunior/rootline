@@ -38,6 +38,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	regCheck, errCheck := regressionChecks(s, bad, good)
 	ceiling, complete := splitAtCeiling(bad)
 	hookCheck, dbCheck := dbChecks(bad)
+	breakdown, shapeCheck := traceShape(s, good, bad)
 	res.Checks = append(res.Checks, regCheck, errCheck, truncatedCheck(ceiling, len(bad)-len(complete)), hookCheck, dbCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
@@ -45,6 +46,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		res.Checks = append(res.Checks,
 			fromDetector(detector.NPlusOneCheck(nil, nil, nil, 0)),
 			fromDetector(detector.MissingIndexCheck(nil, plans != nil, nil, nil)),
+			shapeCheck,
 			Check{ID: CheckCommitCorrelation, Status: CheckNotApplicable, Reason: "no traces of the operation in the bad version"})
 		return res, nil
 	}
@@ -131,6 +133,10 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	if len(good) > 0 {
 		res.Evidence = append(res.Evidence, statsEvidence(newID(), s.BaselineVersion, good))
 	}
+	if breakdown != nil {
+		res.Evidence = append(res.Evidence, breakdownEvidence(newID(), *breakdown))
+	}
+	res.Checks = append(res.Checks, shapeCheck)
 
 	res.Checks = append(res.Checks, finishCorrelation(corr, s, res.Candidates, scored))
 
