@@ -103,7 +103,7 @@ A mensagem final diz o mesmo que o `analyze` diz hoje: N+1 em
 
 Um timer fixo ("analise 30 minutos depois do deploy") falha com a operação que só é chamada horas
 depois. O gatilho é por operação: ela é comparada quando a versão nova junta a amostra mínima
-(hoje 30 traces). Cada operação tem seu próprio relógio.
+(hoje 30 traces), que a referência também precisa ter. Cada operação tem seu próprio relógio.
 
 Uma operação rara pode nunca chegar a 30 traces. Depois de um prazo configurável (sugestão: 48 h),
 o watch publica um resumo com as operações que ficaram sem amostra para comparar, em vez de ficar
@@ -113,8 +113,10 @@ calado.
 
 Há dois tipos de sinal, e eles pedem quantidades diferentes de dados:
 
-- **Estrutural:** N+1, uma query nova, uma chamada nova. Aparece num trace só. O primeiro trace de
-  `GET /customers/{id}/orders` já mostra a query de itens 24 vezes, com a linha vinda do hook.
+- **Estrutural:** aparece num trace só. Hoje, só o N+1 é desse tipo: o primeiro trace de
+  `GET /customers/{id}/orders` já mostra a query de itens 24 vezes, com a linha vinda do hook. O
+  trabalho a mais por requisição (uma query ou chamada nova) não é: ele compara a presença da
+  dependência nas duas versões e precisa da amostra mínima.
 - **Estatístico:** a operação ficou mais lenta. Precisa da amostra mínima nas duas versões, porque
   a latência varia muito entre requisições.
 
@@ -183,7 +185,7 @@ O watch nunca escreve no backend, no repositório nem no banco da aplicação.
 ```mermaid
 stateDiagram-v2
     [*] --> AguardandoAmostra: versão nova vista
-    AguardandoAmostra --> SinalEstrutural: N+1 ou query nova num trace
+    AguardandoAmostra --> SinalEstrutural: N+1 num trace
     SinalEstrutural --> AguardandoAmostra
     AguardandoAmostra --> Comparada: amostra mínima nas duas versões
     Comparada --> Ok: sem Regressão
@@ -249,6 +251,8 @@ continua só com a stdlib. As mudanças ficam nas portas, nos adapters e no `cmd
   entrega antes de ampliar a cobertura produz muitas mensagens sem causa. Mitigação: publicar só
   Resultados com Causa por padrão, e os `Inconclusive` com Regressão num resumo, e seguir em paralelo
   com os itens 5, 6 e 9 do [roadmap](roadmap.md).
+- **Índice faltando continua pulado.** O detector precisa dos planos de execução, que hoje só a
+  avaliação grava. No watch ele sai como pulado até o explainer ao vivo (item 8 do roadmap) existir.
 - **Dados na mensagem.** A query normalizada usa `$1`, sem valores, mas nomes de tabela e de função
   vão para o Slack. O destino precisa ser um canal do próprio time.
 - **Ruído.** Uma operação no limite da regra pode oscilar entre Regressão e não Regressão. O watch
