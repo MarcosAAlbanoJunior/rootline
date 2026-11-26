@@ -13,7 +13,9 @@ função e a linha onde ela está e o commit que a introduziu.
    contêiner.
 3. Ache a operação que regrediu, de dentro do repositório do serviço:
    `rootline symptoms --traces traces.jsonl --repo .`. Ele sugere uma operação e imprime o `analyze`
-   dela. Sem sugestão, ele diz por quê; pegue a operação na tabela e os SHAs no cabeçalho.
+   dela. Sem sugestão, ele diz por quê; pegue a operação na tabela e os SHAs no cabeçalho. Como
+   escolher, e o que fazer quando o `analyze` dá `inconclusive`, está em
+   [escolher a operação](docs/guia-instrumentacao.md#escolher-a-operação).
 4. Analise: `rootline analyze --traces traces.jsonl --repo . --service <seu-servico> --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>`.
 5. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. A seção **Checks**
    diz o que foi verificado, o que foi pulado e, com uma dica, o que fazer. As
