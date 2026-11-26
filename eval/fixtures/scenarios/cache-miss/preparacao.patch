@@ -1,0 +1,309 @@
+diff --git a/demo-app/internal/activity/client.go b/demo-app/internal/activity/client.go
+new file mode 100644
+index 0000000..b87b279
+--- /dev/null
++++ b/demo-app/internal/activity/client.go
+@@ -0,0 +1,60 @@
++package activity
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"time"
++
++	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
++)
++
++// planURL is the endpoint of the plan service.
++const planURL = "http://stub:8090/v1/plan"
++
++// Plan is the commercial plan of a customer.
++type Plan struct {
++	Name string `json:"plan"`
++}
++
++// Client calls the plan service.
++type Client struct {
++	http *http.Client
++}
++
++// NewClient returns a Client. A non-empty addr is dialed in place of the host of the URL, for an
++// environment where the service name does not resolve.
++func NewClient(addr string) *Client {
++	transport := http.DefaultTransport.(*http.Transport).Clone()
++	if addr != "" {
++		dialer := &net.Dialer{Timeout: 2 * time.Second}
++		transport.Proxy = nil
++		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
++			return dialer.DialContext(ctx, network, addr)
++		}
++	}
++	return &Client{http: &http.Client{Timeout: 5 * time.Second, Transport: otelhttp.NewTransport(transport)}}
++}
++
++// Plan returns the current plan.
++func (c *Client) Plan(ctx context.Context) (Plan, error) {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, planURL, nil)
++	if err != nil {
++		return Plan{}, err
++	}
++	resp, err := c.http.Do(req)
++	if err != nil {
++		return Plan{}, err
++	}
++	defer func() { _ = resp.Body.Close() }()
++	if resp.StatusCode != http.StatusOK {
++		return Plan{}, fmt.Errorf("activity: plan service answered %d", resp.StatusCode)
++	}
++	var plan Plan
++	if err := json.NewDecoder(resp.Body).Decode(&plan); err != nil {
++		return Plan{}, err
++	}
++	return plan, nil
++}
+diff --git a/demo-app/internal/activity/handler.go b/demo-app/internal/activity/handler.go
+new file mode 100644
+index 0000000..05b7c1d
+--- /dev/null
++++ b/demo-app/internal/activity/handler.go
+@@ -0,0 +1,63 @@
++package activity
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Reporter is what the handler needs from the service.
++type Reporter interface {
++	Report(ctx context.Context, customerID int64) (Report, error)
++}
++
++// PlanSource is what the handler needs from the plan client.
++type PlanSource interface {
++	Plan(ctx context.Context) (Plan, error)
++}
++
++// Response is the activity of a customer under their plan.
++type Response struct {
++	Plan   Plan   `json:"plan"`
++	Report Report `json:"report"`
++}
++
++// Handler serves the activity report HTTP endpoint.
++type Handler struct {
++	reporter Reporter
++	plans    PlanSource
++}
++
++// NewHandler returns a Handler over reporter and plans.
++func NewHandler(reporter Reporter, plans PlanSource) *Handler {
++	return &Handler{reporter: reporter, plans: plans}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/activity", h.activity)
++}
++
++func (h *Handler) activity(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	plan, err := h.plans.Plan(r.Context()) // rootline:distractor
++	if err != nil {
++		slog.Error("activity plan failed", "err", err)
++		http.Error(w, "bad gateway", http.StatusBadGateway)
++		return
++	}
++	report, err := h.reporter.Report(r.Context(), id)
++	if err != nil {
++		slog.Error("activity report failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(Response{Plan: plan, Report: report})
++}
+diff --git a/demo-app/internal/activity/repository.go b/demo-app/internal/activity/repository.go
+new file mode 100644
+index 0000000..7dcb63e
+--- /dev/null
++++ b/demo-app/internal/activity/repository.go
+@@ -0,0 +1,57 @@
++// Package activity is the demo-app's activity report: cached aggregations over a customer's events.
++package activity
++
++import (
++	"context"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Bucket is one group of an aggregation.
++type Bucket struct {
++	Key   string `json:"key"`
++	Total int64  `json:"total"`
++}
++
++// Repository aggregates events in Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// ByKind sums the customer's events before until, per kind.
++func (r *Repository) ByKind(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error) {
++	rows, err := r.db.Query(ctx, `SELECT kind, sum(amount) FROM events WHERE customer_id = $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`, customerID, until)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Bucket])
++}
++
++// ByMonth sums the customer's events before until, per month.
++func (r *Repository) ByMonth(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error) {
++	rows, err := r.db.Query(ctx, `SELECT to_char(occurred_at, 'YYYY-MM'), sum(amount) FROM events WHERE customer_id = $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`, customerID, until)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Bucket])
++}
++
++// ByWeekday sums the customer's events before until, per day of the week.
++func (r *Repository) ByWeekday(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error) {
++	rows, err := r.db.Query(ctx, `SELECT to_char(occurred_at, 'ID'), sum(amount) FROM events WHERE customer_id = $1 AND occurred_at < $2 GROUP BY 1 ORDER BY 1`, customerID, until)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, pgx.RowToStructByPos[Bucket])
++}
+diff --git a/demo-app/internal/activity/service.go b/demo-app/internal/activity/service.go
+new file mode 100644
+index 0000000..bf8c652
+--- /dev/null
++++ b/demo-app/internal/activity/service.go
+@@ -0,0 +1,63 @@
++package activity
++
++import (
++	"context"
++	"fmt"
++	"sync"
++	"time"
++)
++
++// Report is the aggregated activity of a customer.
++type Report struct {
++	ByKind    []Bucket `json:"by_kind"`
++	ByMonth   []Bucket `json:"by_month"`
++	ByWeekday []Bucket `json:"by_weekday"`
++}
++
++// Store is what the service needs from the repository.
++type Store interface {
++	ByKind(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error)
++	ByMonth(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error)
++	ByWeekday(ctx context.Context, customerID int64, until time.Time) ([]Bucket, error)
++}
++
++// Service builds activity reports and keeps them in memory.
++type Service struct {
++	store Store
++	cache sync.Map // key -> Report
++}
++
++// NewService returns a Service over store.
++func NewService(store Store) *Service {
++	return &Service{store: store}
++}
++
++// Report returns the customer's activity up to the end of today, from the cache when it has it.
++func (s *Service) Report(ctx context.Context, customerID int64) (Report, error) {
++	until := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
++	key := fmt.Sprintf("%d:%d", customerID, until.UnixNano())
++	if cached, ok := s.cache.Load(key); ok {
++		return cached.(Report), nil
++	}
++	report, err := s.compute(ctx, customerID, until)
++	if err != nil {
++		return Report{}, err
++	}
++	s.cache.Store(key, report)
++	return report, nil
++}
++
++func (s *Service) compute(ctx context.Context, customerID int64, until time.Time) (Report, error) {
++	var report Report
++	var err error
++	if report.ByKind, err = s.store.ByKind(ctx, customerID, until); err != nil {
++		return Report{}, err
++	}
++	if report.ByMonth, err = s.store.ByMonth(ctx, customerID, until); err != nil {
++		return Report{}, err
++	}
++	if report.ByWeekday, err = s.store.ByWeekday(ctx, customerID, until); err != nil {
++		return Report{}, err
++	}
++	return report, nil
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 709ad4c..c5d5940 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -26,6 +26,7 @@ import (
+ 	"go.opentelemetry.io/otel/sdk/resource"
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/activity"
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+@@ -79,6 +80,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	activity.NewHandler(activity.NewService(activity.NewRepository(pool)), activity.NewClient(os.Getenv("STUB_ADDR"))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),
+diff --git a/demo-app/schema/100_activity.sql b/demo-app/schema/100_activity.sql
+new file mode 100644
+index 0000000..172d7ab
+--- /dev/null
++++ b/demo-app/schema/100_activity.sql
+@@ -0,0 +1,16 @@
++-- Activity: half a million events, 25 thousand per customer.
++CREATE TABLE IF NOT EXISTS events (
++    id          BIGINT PRIMARY KEY,
++    customer_id BIGINT NOT NULL REFERENCES customers (id),
++    kind        TEXT NOT NULL,
++    amount      INT NOT NULL,
++    occurred_at TIMESTAMPTZ NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS events_customer_id_idx ON events (customer_id);
++
++INSERT INTO events (id, customer_id, kind, amount, occurred_at)
++SELECT e, e % 20 + 1, (ARRAY['view', 'cart', 'purchase', 'refund'])[(e / 20) % 4 + 1], (e * 37) % 1000 + 1,
++       TIMESTAMPTZ '2025-01-01T00:00:00Z' + make_interval(secs => e * 60)
++FROM generate_series(1, 500000) AS e
++ON CONFLICT DO NOTHING;

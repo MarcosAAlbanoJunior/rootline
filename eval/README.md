@@ -18,6 +18,7 @@ frames acima da query, em outro pacote, quebra a suposição de que o loop está
 
 | Cenário | Suposição que quebra |
 |---|---|
+| `cache-miss` | Trabalho a mais aparece como mais queries por trace: a data final do relatório deixa de ser truncada no dia, a chave do cache em memória passa a mudar a cada requisição, e as três agregações, que antes rodavam em 10% das requisições, passam a rodar em todas. As queries por trace com cache furado são as mesmas; só a presença do banco sobe. A Causa é `added_work` com o alvo `postgresql`. O distrator é uma chamada ao stub, na mesma rota, que roda em toda requisição e fica um pouco mais lenta (`/v2/plan`): ela passa de 2x por chamada, mas explica pouco da diferença ([ADR-0031](../docs/adr/0031-detector-de-forma-do-trace.md)). |
 | `call-slow` | A causa de uma regressão está no banco: as queries não mudam em número nem em tempo, e a rota, que já chamava o stub HTTP, passa a chamar um endpoint dele que leva cerca de 100 ms. A Causa é `slow_call` com o alvo `stub:8090`, a localização é o handler (nível 2, sem linha) e o gabarito não espera commit, porque o span da chamada não tem pilha ([ADR-0031](../docs/adr/0031-detector-de-forma-do-trace.md)). |
 | `n1-basic` | Nenhuma: caso básico, loop no service e query no repository. |
 | `n1-helper` | O loop está logo acima da query: aqui fica dois frames acima, em outro pacote, e a query repetida é uma agregada de totais. |
@@ -44,7 +45,8 @@ cenário marca falso positivo. Com a regra, ela sai das candidatas e o Resultado
 
 O `stub/` é o serviço externo dos cenários: um binário Go só com a stdlib, que o `compose.yml` constrói
 pelo `stub/Dockerfile`. Ele responde `GET /v1/rates` na hora e `GET /v2/rates` em 80 a 120 ms, em
-sequência fixa: um atraso constante pareceria um timeout cortando as requisições. O demo-app chama
+sequência fixa: um atraso constante pareceria um timeout cortando as requisições. Para os
+distratores, `GET /v1/plan` responde na hora e `GET /v2/plan` em 2 ms. O demo-app chama
 `http://stub:8090` e disca o endereço da variável `STUB_ADDR`, que o `record` aponta para a porta
 publicada (`--stub-port`, padrão 58090). Assim a dependência nos traces é sempre `stub:8090`.
 

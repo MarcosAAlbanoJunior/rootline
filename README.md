@@ -87,15 +87,15 @@ Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 9/9, 100% |
-| Linha | 8/9, 88% |
-| Commit | 9/9, 100% |
-| Estrito | 8/9, 88% |
-| Falso positivo de detector | 0/2, 0% |
+| Causa | 10/10, 100% |
+| Linha | 9/10, 90% |
+| Commit | 10/10, 100% |
+| Estrito | 9/10, 90% |
+| Falso positivo de detector | 0/3, 0% |
 | Alucinação | 0/2, 0% |
-| Abstenção indevida | 0/8, 0% |
+| Abstenção indevida | 0/9, 0% |
 
-Níveis da Linha: 1=7 2=1 ausente=1. O falso positivo de detector conta só os cenários com distrator; a
+Níveis da Linha: 1=8 2=1 ausente=1. O falso positivo de detector conta só os cenários com distrator; a
 Alucinação, os cenários sem causa (o `cpu-handler`) ou sem commit esperado (o `call-slow`); a
 Abstenção indevida, os cenários com causa. Para as três, menos é melhor. O `call-slow` erra a Linha
 de propósito: a localização dele é de nível 2, sem linha
@@ -105,6 +105,7 @@ Por cenário:
 
 | Cenário | Causa | Linha | Commit | Estrito | Nível | Falso positivo |
 |---|---|---|---|---|---|---|
+| cache-miss | ok | ok | ok | ok | 1 | não |
 | call-slow | ok | erro | ok | erro | 2 | — |
 | cpu-handler | ok | ok | ok | ok | — | — |
 | idx-basic | ok | ok | ok | ok | 1 | não |

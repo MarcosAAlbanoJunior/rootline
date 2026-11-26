@@ -32,6 +32,21 @@ func TestOnlyTheSecondVersionOfTheRatesIsSlow(t *testing.T) {
 	}
 }
 
+// The distractor of a scenario: a call that gets a little slower, far less than the cause.
+func TestTheSecondVersionOfThePlanIsALittleSlower(t *testing.T) {
+	var slept []time.Duration
+	h := handler(func(d time.Duration) { slept = append(slept, d) })
+
+	serve(t, h, "/v1/plan")
+	if len(slept) != 0 {
+		t.Fatalf("the first version of the plan slept %v", slept)
+	}
+	serve(t, h, "/v2/plan")
+	if !slices.Equal(slept, []time.Duration{planDelay}) || planDelay > 5*time.Millisecond {
+		t.Fatalf("the second version slept %v, want a short %s", slept, planDelay)
+	}
+}
+
 // A constant delay would look like a timeout that cuts the requests.
 func TestTheSlowDelayVariesAroundItsMiddleTheSameWayInEveryRun(t *testing.T) {
 	delays := func() []time.Duration {
