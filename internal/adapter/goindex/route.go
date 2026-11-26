@@ -37,14 +37,16 @@ type routeResult struct {
 // approximate by nature: a function, with no line.
 //
 // A registration matches when its first argument is the string literal "METHOD route" or just
-// route, and the second argument names the handler (an identifier, a selector such as h.list, or
-// either wrapped in a conversion like http.HandlerFunc(...)). The handler is looked up among the
-// declarations of the same directory. found is false when no registration exists; an error is
-// returned when the lookup is ambiguous or a file cannot be read.
+// route or, inside chi Route groups, the rest of the route after their prefixes. A call named
+// after an HTTP method (r.Get, r.Post) matches only that method. The second argument names the
+// handler (an identifier, a selector such as h.list, or either wrapped in a conversion like
+// http.HandlerFunc(...)). The handler is looked up among the declarations of the same directory.
+// found is false when no registration exists; an error is returned when the lookup is ambiguous, a
+// file cannot be read, or nothing matches and a candidate file does not parse.
 //
-// Cost: with a FileGrepper reader, one grep process finds the candidate files and only those (plus
-// the handler's directory) are read. Without one, every Go file is read. Results are memoized per
-// (sha, method, route), so each candidate does not pay again.
+// Cost: with a FileGrepper reader, one grep process finds the files that contain the last segment
+// of the route and only those (plus the handler's directory) are read. Without one, every Go file
+// is read. Results are memoized per (sha, method, route), so each candidate does not pay again.
 func (i *Index) FindRouteHandler(sha, method, route string) (function, file string, found bool, err error) {
 	key := routeKey{sha, method, route}
 	i.mu.Lock()
@@ -69,48 +71,40 @@ func (i *Index) findRouteHandler(sha, method, route string) (function, file stri
 	if err != nil {
 		return "", "", false, err
 	}
+	needle := lastSegment(route)
 	candidates := files
 	if g, ok := i.reader.(FileGrepper); ok {
-		if candidates, err = g.GrepGoFiles(sha, route); err != nil {
+		if candidates, err = g.GrepGoFiles(sha, needle); err != nil {
 			return "", "", false, err
 		}
 	}
-	patterns := map[string]bool{route: true, method + " " + route: true}
-
 	type hit struct{ dir, name string }
 	hits := map[hit]bool{}
+	var parseErr error
 	for _, f := range candidates {
 		data, err := i.reader.ReadBlob(sha, f)
 		if err != nil {
 			return "", "", false, err
 		}
-		if !bytes.Contains(data, []byte(route)) {
+		if !bytes.Contains(data, []byte(needle)) {
 			continue
 		}
 		p, err := i.parse(sha, f)
 		if err != nil {
-			return "", "", false, err
+			parseErr = errors.Join(parseErr, err)
+			continue
 		}
-		ast.Inspect(p.file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) < 2 {
-				return true
-			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			if pat, err := strconv.Unquote(lit.Value); err != nil || !patterns[pat] {
-				return true
+		walkRegistrations(p.file, "", func(prefix string, call *ast.CallExpr) {
+			if !registers(call, prefix, method, route) {
+				return
 			}
 			if name := handlerName(call.Args[1]); name != "" {
 				hits[hit{dir: path.Dir(f), name: name}] = true
 			}
-			return true
 		})
 	}
 	if len(hits) == 0 {
-		return "", "", false, nil
+		return "", "", false, parseErr
 	}
 
 	var resolved []string
@@ -134,6 +128,94 @@ func (i *Index) findRouteHandler(sha, method, route string) (function, file stri
 		return resolved[0], files2[resolved[0]], true, nil
 	}
 	return "", "", false, fmt.Errorf("goindex: route %s %s is registered with several handlers: %s", method, route, strings.Join(resolved, ", "))
+}
+
+// walkRegistrations calls visit for every call with at least two arguments, together with the
+// route prefix added by the chi Route groups around it. Groups whose prefix is not a string literal
+// are skipped: the full route of what they register is unknown.
+func walkRegistrations(root ast.Node, prefix string, visit func(prefix string, call *ast.CallExpr)) {
+	ast.Inspect(root, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
+		}
+		if calledName(call) != "Route" {
+			visit(prefix, call)
+			return true
+		}
+		body, inline := call.Args[1].(*ast.FuncLit)
+		if !inline {
+			// Inside a group it mounts a sub-router declared elsewhere. Outside one it may be a
+			// router's own way of registering a handler.
+			if prefix == "" {
+				visit(prefix, call)
+			}
+			return true
+		}
+		if sub, ok := stringLiteral(call.Args[0]); ok {
+			walkRegistrations(body.Body, joinRoute(prefix, sub), visit)
+		}
+		return false
+	})
+}
+
+// chiVerbs are the chi router methods that register a handler for the HTTP method they are named
+// after.
+var chiVerbs = map[string]bool{
+	"Connect": true, "Delete": true, "Get": true, "Head": true, "Options": true,
+	"Patch": true, "Post": true, "Put": true, "Trace": true,
+}
+
+// registers reports whether call registers method and route. Outside a group, the first argument is
+// "METHOD route" or the route. Inside one, it is the rest of the route after the prefix, also with
+// or without the method, and a trailing slash is ignored: chi serves r.Get("/", h) under "/rooms"
+// as "/rooms".
+func registers(call *ast.CallExpr, prefix, method, route string) bool {
+	if verb := calledName(call); chiVerbs[verb] && !strings.EqualFold(verb, method) {
+		return false
+	}
+	pattern, ok := stringLiteral(call.Args[0])
+	if !ok {
+		return false
+	}
+	if prefix == "" {
+		return pattern == route || pattern == method+" "+route
+	}
+	pattern = strings.TrimPrefix(pattern, method+" ")
+	return strings.HasPrefix(pattern, "/") &&
+		trimTrailingSlash(joinRoute(prefix, pattern)) == trimTrailingSlash(route)
+}
+
+func joinRoute(prefix, pattern string) string { return strings.TrimSuffix(prefix, "/") + pattern }
+
+func trimTrailingSlash(route string) string {
+	if route == "/" {
+		return route
+	}
+	return strings.TrimSuffix(route, "/")
+}
+
+// lastSegment is the text a file must contain to register route: groups split a route only before
+// a slash, so its last segment is always whole inside one literal.
+func lastSegment(route string) string {
+	route = trimTrailingSlash(route)
+	return route[max(strings.LastIndex(route, "/"), 0):]
+}
+
+func calledName(call *ast.CallExpr) string {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return sel.Sel.Name
+	}
+	return ""
+}
+
+func stringLiteral(e ast.Expr) (string, bool) {
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	return s, err == nil
 }
 
 // handlerName extracts the handler's declared name from the registration argument.

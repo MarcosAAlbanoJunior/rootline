@@ -247,8 +247,8 @@ func TestFindRouteHandlerReadsOnlyGrepCandidatesAndMemoizes(t *testing.T) {
 			t.Fatalf("call %d: %q found=%v err=%v", i, fn, found, err)
 		}
 	}
-	if g.greps != 1 || g.needle != "/customers/{id}/orders" {
-		t.Fatalf("grep ran %d times with %q, want once with the route (memoized)", g.greps, g.needle)
+	if g.greps != 1 || g.needle != "/orders" {
+		t.Fatalf("grep ran %d times with %q, want once with the last segment of the route (memoized)", g.greps, g.needle)
 	}
 	for p, n := range g.reads {
 		if strings.Contains(p, "/pkg") {
@@ -271,4 +271,138 @@ func TestFindRouteHandlerMemoizesNotFoundToo(t *testing.T) {
 	if g.greps != 1 {
 		t.Fatalf("grep ran %d times, want 1", g.greps)
 	}
+}
+
+const nestedChiRouter = `package api
+
+func (a *api) routes() {
+	r := chi.NewRouter()
+	r.Route("/rooms", func(r chi.Router) {
+		r.Get("/", a.listRooms)
+		r.Route("/{roomID}", func(r chi.Router) {
+			r.Get("/", a.getRoom)
+			r.Get("/messages", a.listMessages)
+			r.Post("/messages", a.postMessage)
+		})
+	})
+}
+
+type api struct{}
+
+func (a *api) listRooms()    {}
+func (a *api) getRoom()      {}
+func (a *api) listMessages() {}
+func (a *api) postMessage()  {}
+`
+
+func TestFindRouteHandlerAddsThePrefixesOfNestedRouteGroups(t *testing.T) {
+	tr := tree{"demo-app/go.mod": demoGoMod, "demo-app/api/api.go": nestedChiRouter}
+	fn, file, found, err := findRoute(t, tr, "POST", "/rooms/{roomID}/messages")
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if fn != "example.com/demo-app/api.(*api).postMessage" || file != "demo-app/api/api.go" {
+		t.Fatalf("got %q in %q", fn, file)
+	}
+}
+
+func TestFindRouteHandlerInChiRouteGroups(t *testing.T) {
+	api := func(body string) string {
+		return "package api\nfunc R(r Router) {\n" + body + "\n}\nfunc one() {}\nfunc two() {}\n"
+	}
+	tests := []struct {
+		name   string
+		src    string
+		method string
+		route  string
+		want   string // handler name; empty means not found
+	}{
+		{name: "the other method of the same path", src: nestedChiRouter, method: "GET", route: "/rooms/{roomID}/messages", want: "(*api).listMessages"},
+		{name: "root of a group", src: nestedChiRouter, method: "GET", route: "/rooms", want: "(*api).listRooms"},
+		{name: "root of a nested group, with a trailing slash", src: nestedChiRouter, method: "GET", route: "/rooms/{roomID}/", want: "(*api).getRoom"},
+		{name: "method not registered in the group", src: nestedChiRouter, method: "DELETE", route: "/rooms/{roomID}/messages"},
+		{name: "route that does not exist", src: nestedChiRouter, method: "GET", route: "/rooms/{roomID}/files"},
+		{name: "the path inside a group is not the whole route", src: nestedChiRouter, method: "GET", route: "/messages"},
+		{
+			name:   "group inside a middleware group",
+			src:    api(`r.Route("/a", func(r Router) { r.Group(func(r Router) { r.With(mw).Get("/b", one) }) })`),
+			method: "GET", route: "/a/b", want: "one",
+		},
+		{
+			name:   "group mounted at the root",
+			src:    api(`r.Route("/", func(r Router) { r.Get("/b", one) })`),
+			method: "GET", route: "/b", want: "one",
+		},
+		{
+			name:   "group whose prefix is not a literal",
+			src:    api(`r.Route(prefix, func(r Router) { r.Get("/b", one) })`),
+			method: "GET", route: "/b",
+		},
+		{
+			name:   "a router declared elsewhere is not the handler of its group",
+			src:    api(`r.Route("/a", func(r Router) { r.Route("/b", one) })`),
+			method: "GET", route: "/a/b",
+		},
+		{
+			name:   "a router's own Route method outside a group registers a handler",
+			src:    api(`app.Route("/b", one)`),
+			method: "GET", route: "/b", want: "one",
+		},
+		{
+			name:   "method in the pattern inside a group",
+			src:    api(`r.Route("/a", func(r Router) { r.HandleFunc("GET /b", one); r.HandleFunc("POST /b", two) })`),
+			method: "POST", route: "/a/b", want: "two",
+		},
+		{
+			name:   "verbs outside a group follow the method too",
+			src:    api(`r.Get("/b", one); r.Post("/b", two)`),
+			method: "POST", route: "/b", want: "two",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fn, _, found, err := findRoute(t, tree{"demo-app/go.mod": demoGoMod, "demo-app/api/api.go": tc.src}, tc.method, tc.route)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if tc.want != "" {
+				want = "example.com/demo-app/api." + tc.want
+			}
+			if found != (want != "") || fn != want {
+				t.Fatalf("found=%v got %q, want %q", found, fn, want)
+			}
+		})
+	}
+}
+
+func TestFindRouteHandlerTwoGroupsServingTheSameRouteAreAmbiguous(t *testing.T) {
+	tr := tree{"demo-app/go.mod": demoGoMod,
+		"demo-app/a/a.go": "package a\nfunc R(r Router) { r.Route(\"/x\", func(r Router) { r.Get(\"/y\", one) }) }\nfunc one() {}\n",
+		"demo-app/b/b.go": "package b\nfunc R(r Router) { r.Get(\"/x/y\", two) }\nfunc two() {}\n",
+	}
+	if _, _, found, err := findRoute(t, tr, "GET", "/x/y"); err == nil || found {
+		t.Fatalf("want an ambiguity error, found=%v err=%v", found, err)
+	}
+}
+
+// The search is by a part of the route, so it also reaches files that have nothing to do with it.
+func TestFindRouteHandlerReportsAParseErrorOnlyWhenNothingElseMatches(t *testing.T) {
+	broken := "package {{.Name}}\n// see /y\n"
+	t.Run("the route is registered in a valid file", func(t *testing.T) {
+		tr := tree{"demo-app/go.mod": demoGoMod,
+			"demo-app/a/a.go":    "package a\nfunc R(m Mux) { m.HandleFunc(\"GET /x/y\", one) }\nfunc one() {}\n",
+			"demo-app/gen/tm.go": broken,
+		}
+		fn, _, found, err := findRoute(t, tr, "GET", "/x/y")
+		if err != nil || !found || fn != "example.com/demo-app/a.one" {
+			t.Fatalf("got %q found=%v err=%v", fn, found, err)
+		}
+	})
+	t.Run("nothing matches", func(t *testing.T) {
+		tr := tree{"demo-app/go.mod": demoGoMod, "demo-app/gen/tm.go": broken}
+		if _, _, found, err := findRoute(t, tr, "GET", "/x/y"); err == nil || found {
+			t.Fatalf("want the parse error, found=%v err=%v", found, err)
+		}
+	})
 }
