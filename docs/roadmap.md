@@ -38,6 +38,12 @@ a sugerida.
 
 ### V1. Rootline como ferramenta de agentes de código (MCP)
 
+**É opcional e fica desligado por padrão.** O `symptoms`, o `analyze` e o watch funcionam sem ele.
+Quem quiser liga o MCP explicitamente, e ele só funciona com duas coisas: os traces guardados num
+backend que o Rootline consegue ler (Tempo, Jaeger ou outro com adapter) e o perfil agregado por
+versão que o watch calcula ([proposta do watch](proximo-passo-watch.md#onde-ficam-os-traces-e-o-que-o-rootline-guarda)).
+Quem usa só o fluxo com arquivo, ou não guarda traces, não tem o MCP e não perde nada do resto.
+
 O Rootline ganha um servidor MCP (`rootline mcp` no laptop do dev ou o próprio watch respondendo por
 HTTP). Nada muda em produção: os pods continuam só emitindo traces, e o Rootline consulta o backend
 de traces e o clone do repositório, só leitura, como hoje.

@@ -223,7 +223,7 @@ versão 9b7d31c
 São kilobytes por versão. O perfil:
 
 - **sobrevive à retenção do backend**, e por isso uma referência antiga continua comparável;
-- **responde rápido**, sem consultar o backend a cada pergunta. É dele que o MCP para agentes do
+- **responde rápido**, sem consultar o backend a cada pergunta. É dele que o MCP para agentes, opcional e desligado por padrão, do
   [roadmap](roadmap.md) tira o `function_in_production`;
 - **é a base do histórico de impacto** (versão a versão, o que mudou em produção);
 - **tem menos dado sensível** que um trace: queries normalizadas, contagens e latências, nada da
