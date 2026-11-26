@@ -24,7 +24,7 @@ Hipótese de causa raiz emitida por um detector na fase 1, com suas evidências 
 
 ## Carga desigual
 Quando as duas gravações não tiveram carga comparável: a mediana da razão de n entre as operações
-com amostra mínima (pelo menos 3) fica fora de [0,8; 1,25] (ADR-0030). Pode ser carga diferente ou requisições
+com amostra mínima (pelo menos 3) fica fora de [0,8; 1,25] (ADR-0032). Pode ser carga diferente ou requisições
 presas. O `rootline symptoms` não sugere operação.
 - Relacionados: [Regressão](#regressão), [Gravação](#gravação)
 
@@ -234,8 +234,10 @@ com amostra mínima) ou ausente. Define o início do intervalo do diff.
 - No código: `Baseline`
 
 ## Regressão
-Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0030):
-amostra mínima nas duas versões e latência (p50 ou p95) ou taxa de erro acima dos limiares. Tem
+Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0032):
+amostra mínima nas duas versões e latência (p50 ou p95) ou taxa de erro acima dos limiares. Um p50
+que dobra com 2 ms a mais já conta, se a versão ruim ficar em pelo menos 3 ms, para não perder um N+1
+numa operação rápida sem marcar a que continua extremamente rápida. Tem
 tipo: latência, erro ou os dois.
 - Evitar: "piorou" solto, sem a regra; "degradação".
 - Relacionados: [Regressão generalizada](#regressão-generalizada), [Sintoma](#sintoma), [Referência](#referência)
