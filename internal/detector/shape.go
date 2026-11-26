@@ -370,9 +370,10 @@ const CheckTraceShape = "trace_shape"
 // mean per trace grew at least this much.
 const MinShapeDeltaMs = 5.0
 
-// TraceShapeCheck reports the breakdown of an operation with a latency regression: the dependency
-// that grew most and what was promoted, or why the guard held.
-func TraceShapeCheck(b Breakdown) Check {
+// TraceShapeCheck reports the breakdown of an operation with a latency regression: what was
+// promoted, or the dependency that grew most and why the guard held. promoted is the candidate
+// PromoteShape returned, if any.
+func TraceShapeCheck(b Breakdown, promoted *Candidate) Check {
 	c := Check{ID: CheckTraceShape, Status: CheckRan}
 	means := fmt.Sprintf("mean per trace %.1f → %.1f ms (%+.1f ms, %d and %d traces)",
 		b.Baseline.MeanMs, b.Bad.MeanMs, b.DeltaMs(), b.Baseline.MeanTraces, b.Bad.MeanTraces)
@@ -380,6 +381,15 @@ func TraceShapeCheck(b Breakdown) Check {
 		c.Reason = fmt.Sprintf("%s: the mean did not follow the p50, so no mechanism is promoted", means)
 		c.Hint = "A bimodal latency can move the mean against the p50; the time breakdown is still in the evidence."
 		return c
+	}
+	if promoted != nil {
+		for _, r := range b.Rows {
+			if r.Dependency == promoted.Dependency {
+				c.Reason = fmt.Sprintf("%s; promoted %s on %s: %s, %.0f%% of the difference",
+					means, promoted.Type, r.Dependency, mechanismFacts(promoted.Type, r), r.Explained*100)
+				return c
+			}
+		}
 	}
 	if len(b.Rows) == 0 {
 		c.Reason = means + "; nothing promoted"
@@ -389,6 +399,14 @@ func TraceShapeCheck(b Breakdown) Check {
 	c.Reason = fmt.Sprintf("%s; dominant: %s, %.0f%% of the difference; nothing promoted",
 		means, top.Dependency, top.Explained*100)
 	return c
+}
+
+// mechanismFacts are the numbers behind a promoted mechanism.
+func mechanismFacts(typ string, r DependencyShare) string {
+	if typ == TypeSlowCall {
+		return fmt.Sprintf("%.1f → %.1f ms per call", r.Baseline.MsPerCall, r.Bad.MsPerCall)
+	}
+	return fmt.Sprintf("presence %.0f%% → %.0f%%", r.Baseline.Presence*100, r.Bad.Presence*100)
 }
 
 // underRoot are the spans of the root's service below the root. Another request of the same

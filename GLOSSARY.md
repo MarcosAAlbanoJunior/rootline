@@ -10,7 +10,8 @@ métrica de alucinação.
 
 ## Alvo da causa
 O "o quê" de uma causa além da função, quando o tipo tem um e ele vem de um campo estruturado da
-evidência. No índice faltando, é a tabela do nó do plano; no N+1, não há alvo. Entra na métrica
+evidência. No índice faltando, é a tabela do nó do plano; no trabalho a mais por requisição e na
+chamada externa mais lenta, é a dependência da divisão do tempo; no N+1, não há alvo. Entra na métrica
 Causa junto com o tipo e a função. Um alvo que só existe em texto (ex.: a coluna dentro do filtro)
 fica como evidência, fora da métrica.
 - Relacionados: [Índice faltando](#índice-faltando), [Gabarito](#gabarito), [ADR-0026](docs/adr/0026-pontuacao-com-alvo-da-causa.md)
