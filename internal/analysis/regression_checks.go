@@ -26,7 +26,7 @@ func sampleOf(vts []versionTrace) VersionSample {
 }
 
 // regressionChecks are the symptom_regression and error_rate checks (ADR-0027): whether the
-// operation really got slower, and whether its errors rose, by the rule of ADR-0030.
+// operation really got slower, and whether its errors rose, by the rule of ADR-0032.
 func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 	reg := Check{ID: CheckSymptomRegression}
 	errs := Check{ID: CheckErrorRate}
@@ -87,7 +87,7 @@ func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 // hintClientTimeouts explains an error rate of zero next to a ceiling.
 const hintClientTimeouts = "No trace ended in error. If the ceiling of the truncated_traces check is a timeout of the client, that is expected: a request the client gave up on is usually not marked as an error on the server span."
 
-// disappearanceRatio is the n ratio under which the drop in traces is pointed out (ADR-0030).
+// disappearanceRatio is the n ratio under which the drop in traces is pointed out (ADR-0032).
 const disappearanceRatio = 0.5
 
 func rate(errors int, st VersionStats) string {

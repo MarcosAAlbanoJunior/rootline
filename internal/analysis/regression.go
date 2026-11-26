@@ -5,14 +5,17 @@ import (
 	"sort"
 )
 
-// Regression thresholds (ADR-0030). They are constants until a real case asks for others.
+// Regression thresholds (ADR-0032). They are constants until a real case asks for others.
 const (
-	MinRegressionSample = 30   // traces in each version
-	LatencyP50Ratio     = 1.5  // bad p50 / baseline p50
-	LatencyP95Ratio     = 2.0  // bad p95 / baseline p95
-	MinLatencyDeltaMs   = 5.0  // absolute increase that the ratio must also reach
-	MinErrorRateDelta   = 0.01 // one percentage point
-	ErrorRateRatio      = 2.0  // the error rate at least doubles
+	MinRegressionSample    = 30   // traces in each version
+	LatencyP50Ratio        = 1.5  // bad p50 / baseline p50
+	LatencyP95Ratio        = 2.0  // bad p95 / baseline p95
+	MinLatencyDeltaMs      = 5.0  // absolute increase that the ratio must also reach
+	LatencyP50DoubledRatio = 2.0  // bad p50 / baseline p50 of the branch with the lower floor
+	MinP50DoubledDeltaMs   = 2.0  // absolute increase of that branch: a fast operation's N+1
+	MinP50DoubledBadMs     = 3.0  // bad p50 of that branch: an operation still this fast does not count
+	MinErrorRateDelta      = 0.01 // one percentage point
+	ErrorRateRatio         = 2.0  // the error rate at least doubles
 )
 
 // Regression types.
@@ -71,9 +74,10 @@ func (r Regression) P95Ratio() float64 { return ratio(r.Bad.P95, r.Baseline.P95)
 // load differs.
 func (r Regression) NRatio() float64 { return ratio(float64(r.Bad.N), float64(r.Baseline.N)) }
 
-// Regress applies the single regression rule of ADR-0030 to the two versions of one operation:
+// Regress applies the single regression rule of ADR-0032 to the two versions of one operation:
 // both need the minimum sample; latency regresses when p50 grows 1.5x or p95 2x, with at least
-// 5 ms more; error regresses when its rate rises at least one point and at least doubles.
+// 5 ms more, or when p50 doubles with at least 2 ms more and reaches 3 ms; error regresses when
+// its rate rises at least one point and at least doubles.
 func Regress(baseline, bad VersionSample) Regression {
 	r := Regression{Baseline: statsOf(baseline), Bad: statsOf(bad)}
 	r.Enough = r.Baseline.N >= MinRegressionSample && r.Bad.N >= MinRegressionSample
@@ -82,8 +86,10 @@ func Regress(baseline, bad VersionSample) Regression {
 	}
 	b, w := r.Baseline, r.Bad
 	p50 := w.P50 >= LatencyP50Ratio*b.P50 && w.P50-b.P50 >= MinLatencyDeltaMs
+	p50Doubled := w.P50 >= LatencyP50DoubledRatio*b.P50 && w.P50-b.P50 >= MinP50DoubledDeltaMs &&
+		w.P50 >= MinP50DoubledBadMs
 	p95 := w.P95 >= LatencyP95Ratio*b.P95 && w.P95-b.P95 >= MinLatencyDeltaMs
-	r.Latency = p50 || p95
+	r.Latency = p50 || p50Doubled || p95
 	// The epsilon keeps a rise of exactly one point from failing on float rounding.
 	r.Error = w.ErrorRate-b.ErrorRate >= MinErrorRateDelta-1e-9 && w.ErrorRate >= ErrorRateRatio*b.ErrorRate
 	return r

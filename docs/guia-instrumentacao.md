@@ -210,7 +210,7 @@ lenta do que é. O aquecimento pode ficar no arquivo, desde que seja igual nas d
 Aplique a mesma carga às duas versões, com a máquina sem outra carga pesada. Se a versão ruim
 gravar bem menos (ou bem mais) traces que a boa em quase todas as operações, o `symptoms` não sugere
 operação, porque a comparação entre elas deixa de valer
-([ADR-0030](adr/0030-regressao-symptoms-e-carga-desigual.md)).
+([ADR-0032](adr/0032-regressao-com-p50-que-dobra.md)).
 
 ### Serviço em contêiner
 
@@ -329,11 +329,17 @@ dessa rota e siga a ordem acima.
   Capturá-los contra um banco de teste está no roadmap.
 - **Só latência.** A v1 analisa regressões de latência. A Verificação `error_rate` mostra a taxa de
   erro das duas versões, mas o Rootline não busca a causa de uma regressão de erro.
+- **Regressões pequenas.** A latência regride quando o p50 sobe 1,5x com 5 ms a mais, quando o p95
+  dobra com 5 ms a mais ou quando o p50 dobra com 2 ms a mais e chega a pelo menos 3 ms. Este
+  último cobre o N+1 numa operação rápida, sem marcar a que continua abaixo de 3 ms. Uma regressão real de 1 a 2 ms com o p95 estável continua de fora
+  ([ADR-0032](adr/0032-regressao-com-p50-que-dobra.md)).
 - **Quatro causas.** O Rootline reconhece N+1, índice faltando, `slow_call` e `added_work`. As
   duas últimas vêm da divisão do tempo da regressão por dependência, que aparece nas evidências
   ([ADR-0031](adr/0031-detector-de-forma-do-trace.md)). Elas precisam da `--baseline-version`, de
   uma regressão de latência (com pelo menos 30 traces da operação em cada versão) e de uma média
-  por trace que suba 5 ms ou mais. Só saem como causa quando não há N+1 nem índice faltando:
+  por trace que suba 5 ms ou mais. Um p50 que dobra com 2 ms a mais e chega a 3 ms já conta como regressão
+  ([ADR-0032](adr/0032-regressao-com-p50-que-dobra.md)), mas quase sempre fica abaixo dos 5 ms da
+  média, e a Verificação `trace_shape` diz isso. Só saem como causa quando não há N+1 nem índice faltando:
   - **`slow_call`** (chamada externa mais lenta): uma dependência HTTP ou RPC explica pelo menos
     80% da diferença, o tempo por chamada pelo menos dobra e a fração dos traces em que ela
     aparece varia menos de 25 pontos. A localização é o handler da rota, aproximada, **sem linha
