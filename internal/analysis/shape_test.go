@@ -1,11 +1,13 @@
 package analysis_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/MarcosAAlbanoJunior/rootline/internal/analysis"
 	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
 )
 
@@ -33,6 +35,19 @@ func traces(prefix, version string, n int, f func(i int) (rootMs, callMs float64
 		out = append(out, callTrace(fmt.Sprintf("%s%02d", prefix, i), version, r, c)...)
 	}
 	return out
+}
+
+func toJSON(t *testing.T, res analysis.Result) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 func slowCall(t *testing.T) map[string]any {
@@ -79,16 +94,43 @@ func TestTimeBreakdown_IsEvidenceOfALatencyRegression(t *testing.T) {
 	}
 }
 
-func TestTraceShapeCheck_RanNamesTheDominantDependencyAndPromotesNothing(t *testing.T) {
-	m := slowCall(t)
+func TestTraceShapeCheck_RanNamesTheDominantRowAndPromotesNothing(t *testing.T) {
+	// The handler got slower by itself: the call to moderation did not change.
+	src := append(traces("good", baseline, 40, func(int) (float64, float64) { return 5, 3 }),
+		traces("bad", bad, 40, func(int) (float64, float64) { return 150, 3 })...)
+	m := run(t, src, fakeGit{}, symptom)
 	c := check(t, m, "trace_shape")
 
 	wantStatus(t, c, "ran")
-	contains(t, c, "reason", "http:moderation:8090")
+	contains(t, c, "reason", "dominant: own_time")
 	contains(t, c, "reason", "nothing promoted")
+	contains(t, c, "reason", "a larger own time is not promoted")
 	if len(list(m, "candidates")) != 0 {
 		t.Errorf("candidates = %v, want none", m["candidates"])
 	}
+}
+
+func TestSlowCall_IsTheCauseWithTheApproximateLocationOfTheHandler(t *testing.T) {
+	var calls []string
+	src := append(traces("good", baseline, 40, func(int) (float64, float64) { return 5, 3 }),
+		traces("bad", bad, 40, func(int) (float64, float64) { return 150, 148 })...)
+	res, err := analysis.Analyze(src, routeIndex{fn: handlerFn, file: handlerFile, found: true, calls: &calls}, fakeGit{}, nil, symptom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := toJSON(t, res)
+
+	cause := obj(t, m["cause"])
+	if cause["type"] != "slow_call" || cause["target"] != "moderation:8090" || cause["confidence"] != "medium" {
+		t.Fatalf("cause = %v, want slow_call on moderation:8090, medium", cause)
+	}
+	loc := obj(t, cause["location"])
+	if loc["level"] != 2.0 || loc["function"] != handlerFn || loc["approximate"] != true {
+		t.Errorf("location = %v, want the approximate level 2 at the handler", loc)
+	}
+	contains(t, check(t, m, "trace_shape"), "reason", "promoted slow_call on http:moderation:8090")
+	corr := check(t, m, "commit_correlation")
+	contains(t, corr, "reason", "C1 slow_call: the span of the call to moderation:8090 has no app stack")
 }
 
 func TestTraceShapeCheck_DoesNotApplyWithoutALatencyRegression(t *testing.T) {

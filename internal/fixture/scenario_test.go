@@ -240,9 +240,11 @@ func TestLoadScenario_InconclusiveAnswerWithALocationIsAnErrorCitingTheField(t *
 	}
 }
 
-func TestLoadScenario_AddedWorkAnswerCarriesTheDependencyAsTarget(t *testing.T) {
-	if _, err := loadScenarioJSON(t, scenarioJSONWithAnswer(
-		`{"cause":"added_work","function":"f","file":"a.go","marker":"// m","commit":"regressao"}`)); err == nil || !strings.Contains(err.Error(), "answer.target") {
-		t.Fatalf("err = %v, want an error citing answer.target (added_work targets the dependency)", err)
+func TestLoadScenario_ShapeAnswersCarryTheDependencyAsTarget(t *testing.T) {
+	for _, cause := range []string{"added_work", "slow_call"} {
+		if _, err := loadScenarioJSON(t, scenarioJSONWithAnswer(
+			`{"cause":"`+cause+`","function":"f","file":"a.go","marker":"// m","commit":"regressao"}`)); err == nil || !strings.Contains(err.Error(), "answer.target") {
+			t.Errorf("%s: err = %v, want an error citing answer.target (the dependency)", cause, err)
+		}
 	}
 }

@@ -13,6 +13,7 @@ const (
 	TypeNPlusOne     = detector.TypeNPlusOne
 	TypeMissingIndex = detector.TypeMissingIndex
 	TypeAddedWork    = detector.TypeAddedWork
+	TypeSlowCall     = detector.TypeSlowCall
 )
 
 // Result is the analysis output. Its JSON form is the output contract of the CLI (keys in English,
