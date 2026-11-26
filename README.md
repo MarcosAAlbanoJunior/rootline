@@ -63,7 +63,7 @@ Avaliação com o cenário `n1-basic`:
 go build -o bin/rootline-eval ./cmd/rootline-eval
 # gera o repositório de fixture e o gabarito
 bin/rootline-eval generate --scenario eval/fixtures/scenarios/n1-basic --source . --out /tmp/n1-gen
-# grava os traces (precisa de Docker: sobe Postgres, Collector e o demo-app)
+# grava os traces (precisa de Docker: sobe Postgres, Collector, o stub HTTP e o demo-app)
 bin/rootline-eval record --scenario eval/fixtures/scenarios/n1-basic --source . --out /tmp/n1-rec
 # pontua só com detectores e compara com o placar (sai com 1 se houver regressão)
 bin/rootline-eval score --recordings /tmp/n1-rec --placar eval/placar.json
@@ -85,22 +85,25 @@ Modo só-detectores, igual ao `eval/placar.json`:
 
 | Métrica | Resultado |
 |---|---|
-| Causa | 8/8, 100% |
-| Linha | 8/8, 100% |
-| Commit | 8/8, 100% |
-| Estrito | 8/8, 100% |
+| Causa | 9/9, 100% |
+| Linha | 8/9, 88% |
+| Commit | 9/9, 100% |
+| Estrito | 8/9, 88% |
 | Falso positivo de detector | 0/2, 0% |
-| Alucinação | 0/1, 0% |
-| Abstenção indevida | 0/7, 0% |
+| Alucinação | 0/2, 0% |
+| Abstenção indevida | 0/8, 0% |
 
-Níveis da Linha: 1=7 2=0 ausente=1. O falso positivo de detector conta só os cenários com distrator; a
-Alucinação, os cenários sem causa (o `cpu-handler`); a Abstenção indevida, os cenários com causa. Para
-as três, menos é melhor.
+Níveis da Linha: 1=7 2=1 ausente=1. O falso positivo de detector conta só os cenários com distrator; a
+Alucinação, os cenários sem causa (o `cpu-handler`) ou sem commit esperado (o `call-slow`); a
+Abstenção indevida, os cenários com causa. Para as três, menos é melhor. O `call-slow` erra a Linha
+de propósito: a localização dele é de nível 2, sem linha
+([ADR-0014](docs/adr/0014-localizacao-de-nivel-2-como-fallback.md)).
 
 Por cenário:
 
 | Cenário | Causa | Linha | Commit | Estrito | Nível | Falso positivo |
 |---|---|---|---|---|---|---|
+| call-slow | ok | erro | ok | erro | 2 | — |
 | cpu-handler | ok | ok | ok | ok | — | — |
 | idx-basic | ok | ok | ok | ok | 1 | não |
 | n1-basic | ok | ok | ok | ok | 1 | — |

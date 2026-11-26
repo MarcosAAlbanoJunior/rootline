@@ -18,6 +18,7 @@ frames acima da query, em outro pacote, quebra a suposição de que o loop está
 
 | Cenário | Suposição que quebra |
 |---|---|
+| `call-slow` | A causa de uma regressão está no banco: as queries não mudam em número nem em tempo, e a rota, que já chamava o stub HTTP, passa a chamar um endpoint dele que leva cerca de 100 ms. A Causa é `slow_call` com o alvo `stub:8090`, a localização é o handler (nível 2, sem linha) e o gabarito não espera commit, porque o span da chamada não tem pilha ([ADR-0031](../docs/adr/0031-detector-de-forma-do-trace.md)). |
 | `n1-basic` | Nenhuma: caso básico, loop no service e query no repository. |
 | `n1-helper` | O loop está logo acima da query: aqui fica dois frames acima, em outro pacote, e a query repetida é uma agregada de totais. |
 | `n1-rangefunc` | O frame do loop tem o nome da função declarada: o corpo de um `for range` sobre `iter.Seq2` vira `History-range1` ([ADR-0019](../docs/adr/0019-funcao-declarada-no-lugar-de-nomes-sinteticos.md)). |
@@ -38,6 +39,14 @@ função (`statement.(*Service).Statement`), e a linha os distingue: a chamada p
 paginação, o detector reporta a leitura paginada como segunda candidata, na linha do distrator, e o
 cenário marca falso positivo. Com a regra, ela sai das candidatas e o Resultado ganha a observação
 `pagination_shape:`.
+
+## Stub HTTP
+
+O `stub/` é o serviço externo dos cenários: um binário Go só com a stdlib, que o `compose.yml` constrói
+pelo `stub/Dockerfile`. Ele responde `GET /v1/rates` na hora e `GET /v2/rates` em 80 a 120 ms, em
+sequência fixa: um atraso constante pareceria um timeout cortando as requisições. O demo-app chama
+`http://stub:8090` e disca o endereço da variável `STUB_ADDR`, que o `record` aponta para a porta
+publicada (`--stub-port`, padrão 58090). Assim a dependência nos traces é sempre `stub:8090`.
 
 ## Código pré-existente: patch de preparação
 
@@ -96,7 +105,8 @@ ali, citando o cenário, antes de chegar ao CI.
   ordem declarada; a requisição `i` vai para `ciclo[i mod tamanho]` e `{id}` vira `i mod 20 + 1`. Não há
   aleatoriedade. A rota do sintoma recebe `requests × peso / soma dos pesos` requisições.
 - **`answer`**: o gabarito. A linha não é digitada: o gerador acha a linha que termina com `marker` no
-  commit `commit`, remove o marcador e grava a linha.
+  commit `commit`, remove o marcador e grava a linha. Um `slow_call` pode deixar `commit` vazio: o
+  Resultado não deve trazer commit, e o marcador fica no commit ruim.
 - **`distractors`**: opcional. Veja a seção abaixo.
 
 ## Distratores

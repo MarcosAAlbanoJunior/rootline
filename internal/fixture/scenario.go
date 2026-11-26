@@ -20,7 +20,9 @@ type ScenarioCommit struct {
 }
 
 // ScenarioAnswer is the answer key as written in scenario.json: everything but the line, which the
-// generator computes from the marker. Target is the cause target of the type (ADR-0026).
+// generator computes from the marker. Target is the cause target of the type (ADR-0026). Commit is
+// the label of the commit expected in the Result; a slow_call may leave it empty, and then the
+// marker is in the bad commit.
 type ScenarioAnswer struct {
 	Cause    string `json:"cause"`
 	Function string `json:"function"`
@@ -35,11 +37,15 @@ type ScenarioAnswer struct {
 // ADR-0026). Such an answer has no function, file, marker, target or commit.
 const CauseInconclusive = "inconclusive"
 
+// causeSlowCall is the cause type whose answer may expect no commit: its span has no app stack to
+// correlate (ADR-0031).
+const causeSlowCall = "slow_call"
+
 // causeHasTarget says, per cause type, whether it has a target (ADR-0026): the table of a missing
 // index, the dependency of an added_work or a slow_call (ADR-0031); nothing in an N+1. A new type
 // declares one or the other here.
 var causeHasTarget = map[string]bool{
-	"n_plus_one": false, "missing_index": true, "added_work": true, "slow_call": true, CauseInconclusive: false,
+	"n_plus_one": false, "missing_index": true, "added_work": true, causeSlowCall: true, CauseInconclusive: false,
 }
 
 // validateInconclusive refuses any location or commit in an inconclusive answer: there is nothing

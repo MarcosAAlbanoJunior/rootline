@@ -26,12 +26,14 @@ const (
 	DefaultPostgresPort  = 55432
 	DefaultCollectorPort = 54318
 	DefaultAppPort       = 58080
+	DefaultStubPort      = 58090
 )
 
 // RecordOptions configures Record. The load is not an option: it comes from the scenario.
 type RecordOptions struct {
 	ScenarioDir, SourceDir, OutDir       string
 	PostgresPort, CollectorPort, AppPort int // 0 = default
+	StubPort                             int // 0 = default
 }
 
 // Record generates <OutDir>/repo, builds and runs every commit under the scenario's load, and
@@ -47,6 +49,9 @@ func Record(ctx context.Context, opts RecordOptions) (err error) {
 	}
 	if opts.AppPort == 0 {
 		opts.AppPort = DefaultAppPort
+	}
+	if opts.StubPort == 0 {
+		opts.StubPort = DefaultStubPort
 	}
 	sc, err := fixture.LoadScenario(opts.ScenarioDir) // validates the load before anything starts
 	if err != nil {
@@ -210,7 +215,10 @@ func startStack(ctx context.Context, opts RecordOptions, work string) (*stack, e
 	if err := os.MkdirAll(composeDir, 0o755); err != nil {
 		return nil, err
 	}
-	for _, f := range []string{"compose.yml", "otelcol.yaml"} {
+	if err := os.MkdirAll(filepath.Join(composeDir, "stub"), 0o755); err != nil {
+		return nil, err
+	}
+	for _, f := range []string{"compose.yml", "otelcol.yaml", "stub/Dockerfile", "stub/main.go"} {
 		if err := copyFile(filepath.Join(opts.SourceDir, "eval", f), filepath.Join(composeDir, f)); err != nil {
 			return nil, err
 		}
@@ -230,13 +238,19 @@ func startStack(ctx context.Context, opts RecordOptions, work string) (*stack, e
 			"ROOTLINE_PG_PORT=" + strconv.Itoa(opts.PostgresPort),
 			"ROOTLINE_OTLP_PORT=" + strconv.Itoa(opts.CollectorPort),
 			"ROOTLINE_COLLECTOR_OUT=" + out,
+			"ROOTLINE_STUB_PORT=" + strconv.Itoa(opts.StubPort),
 		},
 	}
-	if _, err := s.compose(ctx, "up", "-d"); err != nil {
+	if _, err := s.compose(ctx, "up", "-d", "--build"); err != nil {
 		_ = s.down()
 		return nil, err
 	}
 	if err := s.waitPostgres(ctx); err != nil {
+		_ = s.down()
+		return nil, err
+	}
+	stubHealth := "http://127.0.0.1:" + strconv.Itoa(opts.StubPort) + "/healthz"
+	if err := waitHealthy(ctx, healthClient, stubHealth, nil, healthTimeout); err != nil {
 		_ = s.down()
 		return nil, err
 	}
@@ -302,6 +316,8 @@ func runVersion(ctx context.Context, opts RecordOptions, load LoadConfig, bin, s
 		"SERVICE_VERSION="+sha,
 		"LISTEN_ADDR=127.0.0.1:"+strconv.Itoa(opts.AppPort),
 		"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:"+strconv.Itoa(opts.CollectorPort),
+		// The demo-app calls http://stub:8090 whatever the host port, so the dependency in the traces is stable.
+		"STUB_ADDR=127.0.0.1:"+strconv.Itoa(opts.StubPort),
 	)
 	var logs bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &logs, &logs
@@ -358,7 +374,7 @@ func waitHealthy(ctx context.Context, client *http.Client, url string, exited <-
 			}
 		}
 	}
-	return fmt.Errorf("demo-app did not become healthy in %s", timeout)
+	return fmt.Errorf("%s did not become healthy in %s", url, timeout)
 }
 
 func runCmd(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {

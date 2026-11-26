@@ -1,0 +1,38 @@
+diff --git a/demo-app/internal/shipping/client.go b/demo-app/internal/shipping/client.go
+index abeafd5..1608e03 100644
+--- a/demo-app/internal/shipping/client.go
++++ b/demo-app/internal/shipping/client.go
+@@ -12,11 +12,18 @@ import (
+ )
+ 
+ // ratesURL is the endpoint of the rates service.
+-const ratesURL = "http://stub:8090/v1/rates"
++const ratesURL = "http://stub:8090/v2/rates"
+ 
+ // Rates is what the rates service charges.
+ type Rates struct {
+-	StandardCents int `json:"standard_cents"`
++	StandardCents int       `json:"standard_cents"`
++	Carriers      []Carrier `json:"carriers"`
++}
++
++// Carrier is the price of one carrier.
++type Carrier struct {
++	Name  string `json:"name"`
++	Cents int    `json:"cents"`
+ }
+ 
+ // Client calls the rates service.
+diff --git a/demo-app/internal/shipping/handler.go b/demo-app/internal/shipping/handler.go
+index ea84d99..e8259d4 100644
+--- a/demo-app/internal/shipping/handler.go
++++ b/demo-app/internal/shipping/handler.go
+@@ -52,7 +52,7 @@ func (h *Handler) quote(w http.ResponseWriter, r *http.Request) {
+ 		http.Error(w, "internal error", http.StatusInternalServerError)
+ 		return
+ 	}
+-	rates, err := h.rates.Rates(r.Context())
++	rates, err := h.rates.Rates(r.Context()) // rootline:answer
+ 	if err != nil {
+ 		slog.Error("shipping rates failed", "err", err)
+ 		http.Error(w, "bad gateway", http.StatusBadGateway)
