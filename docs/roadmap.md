@@ -14,6 +14,13 @@ abaixo diz quais apps do piloto ele cobriria.
 
 Itens que mudam a arquitetura passam por `/grill-me` e ganham um ADR antes dos tickets.
 
+## Próxima grande mudança: Rootline automático por deploy
+
+Um `rootline watch` que lê os traces do Tempo ou do Jaeger, percebe cada versão nova, compara cada
+operação com a anterior assim que houver amostra e publica a Causa, sem passos manuais e sem rodar
+no CI. Proposta completa, com as decisões que pedem ADR e o plano em fatias:
+[proximo-passo-watch.md](proximo-passo-watch.md).
+
 ## Curto prazo: tirar o atrito de uso
 
 1. **Explicar o `inconclusive`.** O Resultado diz o que foi verificado, o que faltou (hook de
