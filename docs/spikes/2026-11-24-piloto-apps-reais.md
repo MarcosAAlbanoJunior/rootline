@@ -2,7 +2,7 @@
 id: SPIKE-2026-11-24-piloto-apps-reais
 title: Piloto do Rootline em dez apps reais escritos por quem não conhece a ferramenta
 status: Concluído
-summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Rodada 3 (10 apps, usuário cego só com README e guia) - 3/3 causas, 0/7 falsos positivos, sem script externo; o symptoms sugeriu errado no app-01 sob gravação ruidosa. Rodada 4 (as 19 gravações das rodadas 2 e 3 com o detector de forma) - Candidata de forma só no app-05 e no app-08, com mecanismo e alvo certos. Orienta o docs/roadmap.md.
+summary: Rodada 1 (3 apps, stack livre) - todos Postgres + pgx + N+1, e o Rootline acertou os 3. Rodada 2 (7 apps, stack e família atribuídas) - 7 inconclusive, nenhum falso positivo, nenhum acerto, porque as famílias estão fora dos detectores atuais. Rodada 3 (10 apps, usuário cego só com README e guia) - 3/3 causas, 0/7 falsos positivos, sem script externo; o symptoms sugeriu errado no app-01 sob gravação ruidosa. Rodada 4 (as 19 gravações das rodadas 2 e 3 com o detector de forma) - Candidata de forma só no app-05 e no app-08, com mecanismo e alvo certos. Rodada 5 (as mesmas 19 com a Regressão do ADR-0032, p50 ≥ 2x com +2 ms e p50 ruim ≥ 3 ms) - só as 3 operações-alvo ganham Regressão e passam a ser sugeridas, o analyze acha o mesmo nas 138 operações, e o aviso de Causa sem Regressão sai só em /search e /related do app-03 e do app-03-guia. Orienta o docs/roadmap.md.
 ---
 
 # Piloto do Rootline em apps reais
@@ -296,6 +296,66 @@ da média. Os caminhos de função omitem o prefixo do módulo.
 
 Quando a média sobe menos de 5 ms (app-01-solo e várias rotas do app-10), a `trace_shape` diz que "a
 média não acompanhou o p50", mas o motivo é a guarda de 5 ms.
+
+## Rodada 5: Regressão com p50 que dobra nas gravações guardadas
+
+Conferência do [ADR-0032](../adr/0032-regressao-com-p50-que-dobra.md) (#66): a latência regride
+também com p50 ≥ 2x e 2 ms a mais, com o p50 da versão ruim em pelo menos 3 ms, a `symptom_regression` diz o limiar que faltou e uma Causa sem
+Regressão de latência ganha um aviso.
+
+### Método
+
+- **Sem regravar.** As mesmas 19 gravações da rodada 4.
+- `rootline symptoms --repo` em cada gravação e `rootline analyze --repo` em toda operação com
+  amostra mínima (138 operações), com as versões na ordem do git. Cada comando rodou com dois
+  binários: o da `main` (`f05ec05`) e o da branch do #66, com o #87 e o #88. A comparação é entre os
+  dois.
+- **Gabaritos abertos só depois** da conferência, e só os do app-02 e do app-03, para conferir a
+  rota sugerida.
+
+### Resultado
+
+"Regressões" conta as operações com Regressão no `symptoms`. "Sugestão" é a operação sugerida, ou –
+sem sugestão. Nas linhas sem mudança, só uma coluna mostra o valor.
+
+| Rodada | Gravação | Operações | Regressões | Sugestão | `trace_shape` na sugerida | Aviso de Causa sem Regressão |
+|---|---|---|---|---|---|---|
+| 2 | app-04 | 6 | 6 | – (Carga desigual) | igual | nenhum |
+| 2 | app-05 | 4 | 1 | `GET /api/v1/links/{code}/stats` | igual | nenhum |
+| 2 | app-06 | 5 | 4 | `GET /v1/traces/{traceID}` | igual | nenhum |
+| 2 | app-07 | 8 | 1 | `GET /api/v1/products/{id}/stock` | igual | nenhum |
+| 2 | app-08 | 6 | 1 | `POST /rooms/{roomID}/messages` | igual | nenhum |
+| 2 | app-09 | 7 | 7 | – (regressão generalizada) | igual | nenhum |
+| 2 | app-10 | 10 | 2 | `GET /v1/tenants/{tenantID}/reports` | igual | nenhum |
+| 3 | app-01-paralelo | 8 | 3 | – (Carga desigual) | igual | nenhum |
+| 3 | app-01-solo | 9 | 1 | `GET /v1/sites/{id}/devices` | igual | nenhum |
+| 3 | app-02 | 7 | **0 → 1** | **– → `GET .../accounts/{accountID}/statement`** | **passa a rodar**: média 69,5 → 12,0 ms, não acompanhou o p50; nada promovido | nenhum |
+| 3 | app-03 | 11 | **0 → 1** | **– → `GET /api/v1/books`** | **passa a rodar**: média 1,2 → 4,0 ms, abaixo da guarda de 5 ms; nada promovido | **`/api/v1/search` e `/api/v1/books/{bookID}/related`** |
+| 3 | app-03-guia | 11 | **0 → 1** | **– → `GET /api/v1/books`** | **passa a rodar**: média 0,9 → 3,8 ms, abaixo da guarda de 5 ms; nada promovido | **`/api/v1/search` e `/api/v1/books/{bookID}/related`** |
+| 3 | app-04 | 6 | 6 | – (Carga desigual) | igual | nenhum |
+| 3 | app-05 | 4 | 1 | `GET /api/v1/links/{code}/stats` | igual | nenhum |
+| 3 | app-06 | 5 | 5 | `GET /v1/traces/{traceID}` | igual | nenhum |
+| 3 | app-07 | 8 | 1 | `GET /api/v1/products/{id}/stock` | igual | nenhum |
+| 3 | app-08 | 6 | 1 | `POST /rooms/{roomID}/messages` | igual | nenhum |
+| 3 | app-09 | 7 | 7 | – (Carga desigual) | igual | nenhum |
+| 3 | app-10 | 10 | 10 | – (regressão generalizada) | igual | nenhum |
+
+- **Só as 3 operações-alvo mudam no `symptoms`.** Nas três, a operação ganha Regressão de latência e
+  passa a ser sugerida, e é a rota do gabarito. As outras 16 gravações têm a saída do `symptoms`
+  idêntica.
+- **O `analyze` não muda o que acha.** Status, Causa (tipo, alvo, função, arquivo:linha e commit) e
+  Candidatas iguais nas 138 operações: 13 `cause_found` e 125 `inconclusive`, como antes.
+- **A `trace_shape` roda nas 3 e não promove nada.** No app-03 e no app-03-guia, ela cita a guarda
+  de 5 ms. No app-02, a média caiu, e ela diz que a média não acompanhou o p50.
+- **O aviso aparece em 4 operações, as esperadas:** `/api/v1/search` e `/api/v1/books/{bookID}/related`
+  no app-03 e no app-03-guia, com o N+1 certo em `attachAuthors` (`store.go:225`) e p50 de só 1,3x.
+  Das 13 operações com Causa, são as únicas sem Regressão de latência. Lá, a `symptom_regression`
+  diz, por exemplo, `p50 1.30x (+2.42 ms): under 1.5x and under 2x; p95 0.48x (-15.96 ms): under 2x`.
+- **O mínimo de 3 ms não muda nada aqui.** O menor alvo chega a 3,74 ms (app-03-guia), e nenhuma
+  outra operação dobrou o p50 com 2 ms a mais. Ele protege a sugestão de uma operação que continua
+  extremamente rápida, caso que estas gravações não têm.
+- **Placar igual** ao `eval/placar.json`: Causa 10/10, falso positivo 0/3, alucinação 0/2,
+  abstenção indevida 0/9.
 
 ## Próximos passos
 

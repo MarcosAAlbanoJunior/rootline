@@ -7,7 +7,7 @@ função e a linha onde ela está e o commit que a introduziu.
 
 ## Comece aqui
 
-1. Instale o CLI (precisa de Go): `go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.2.0`.
+1. Instale o CLI (precisa de Go): `go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.2.1`.
 2. Instale o hook no seu serviço e grave as duas versões com o Collector, seguindo o
    [guia de instrumentação](docs/guia-instrumentacao.md). Ele cobre também o serviço que roda em
    contêiner.
