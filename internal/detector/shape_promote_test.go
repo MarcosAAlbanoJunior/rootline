@@ -2,6 +2,7 @@ package detector_test
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
@@ -134,5 +135,91 @@ func TestPromoteShape_AddedWorkWithoutAStackHasNoLocation(t *testing.T) {
 
 	if !ok || c.Location != nil || c.LocationReason != detector.ReasonNoAppStack {
 		t.Errorf("candidate = %+v, %v; want added_work without location, reason no_app_stack", c, ok)
+	}
+}
+
+var moderationDep = detector.Dependency{Kind: detector.KindHTTP, Name: "moderation:8090"}
+
+func slowCall(d detector.Dependency, explained, slowdown, presenceTo float64) detector.DependencyShare {
+	return detector.DependencyShare{
+		Dependency: d, Explained: explained,
+		Baseline: detector.Share{MeanMs: 3.5, Presence: 1, CallsPerTrace: 1, MsPerCall: 10},
+		Bad:      detector.Share{MeanMs: 100, Presence: presenceTo, CallsPerTrace: 1, MsPerCall: 10 * slowdown},
+	}
+}
+
+func TestShapeMechanism_SlowCallAtTheThresholds(t *testing.T) {
+	rpc := detector.Dependency{Kind: detector.KindRPC, Name: "payments.Billing"}
+	cases := []struct {
+		name string
+		row  detector.DependencyShare
+		want bool
+	}{
+		{"explains 80%, 2x per call", slowCall(moderationDep, 0.80, 2, 1), true},
+		{"explains 79%", slowCall(moderationDep, 0.79, 30, 1), false},
+		{"1.9x per call", slowCall(moderationDep, 0.99, 1.9, 1), false},
+		{"presence down 24 points", slowCall(moderationDep, 1, 30, 0.76), true},
+		{"presence down 25 points", slowCall(moderationDep, 1, 30, 0.75), false},
+		{"an RPC service", slowCall(rpc, 1, 30, 1), true},
+		{"a database that got slower", slowCall(postgres, 1, 30, 1), false},
+		{"a client span known only by its name", slowCall(detector.Dependency{Kind: detector.KindSpanName, Name: "publish"}, 1, 30, 1), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			typ, row, ok := detector.ShapeMechanism(grew(100, c.row))
+			if ok != c.want || (ok && (typ != detector.TypeSlowCall || row.Dependency != c.row.Dependency)) {
+				t.Errorf("ShapeMechanism = %q, %v, %v; want slow_call: %v", typ, row.Dependency, ok, c.want)
+			}
+		})
+	}
+}
+
+func TestShapeMechanism_ALargerOwnTimeIsNeverPromoted(t *testing.T) {
+	own := slowCall(detector.OwnTime, 1, 30, 1)
+	own.Baseline.Presence = 0
+
+	if typ, _, ok := detector.ShapeMechanism(grew(100, own)); ok {
+		t.Errorf("promoted %s from the own time", typ)
+	}
+}
+
+func TestPromoteShape_SlowCallHasTheDependencyAsTargetAndNoStack(t *testing.T) {
+	c, ok := detector.PromoteShape(fakeEnv{}, "abc1234", grew(100, slowCall(moderationDep, 0.99, 30, 1)), nil)
+
+	if !ok || c.Type != detector.TypeSlowCall || c.Target != "moderation:8090" || c.Score != 0.99 || c.Confidence != "medium" {
+		t.Fatalf("candidate = %+v, %v; want slow_call on moderation:8090, score 0.99, medium", c, ok)
+	}
+	if c.Location != nil || len(c.Stack) != 0 || c.LocationReason != detector.ReasonNoAppStack {
+		t.Errorf("location = %+v, stack %v, reason %q; want none: the HTTP span has no app stack", c.Location, c.Stack, c.LocationReason)
+	}
+}
+
+func TestTraceShapeCheck_SaysTheOriginIsOutsideTheTraceWhenNothingIsPromoted(t *testing.T) {
+	db := slowCall(postgres, 1, 30, 1)
+	own := slowCall(detector.OwnTime, 1, 30, 1)
+	for name, c := range map[string]struct {
+		row  detector.DependencyShare
+		want string
+	}{
+		"slower database": {db, "a slower database is not promoted: its origin is outside the trace (index, lock, pool)"},
+		"larger own time": {own, "a larger own time is not promoted: its origin is outside the trace (CPU, lock, uninstrumented wait)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := detector.TraceShapeCheck(grew(100, c.row), nil)
+			if !strings.Contains(got.Reason, c.want) {
+				t.Errorf("reason = %q, want it to contain %q", got.Reason, c.want)
+			}
+		})
+	}
+}
+
+func TestTraceShapeCheck_NamesThePromotedSlowCall(t *testing.T) {
+	b := grew(100, slowCall(moderationDep, 0.99, 30, 1))
+	c, _ := detector.PromoteShape(fakeEnv{}, "abc1234", b, nil)
+
+	got := detector.TraceShapeCheck(b, &c)
+
+	if want := "promoted slow_call on http:moderation:8090: 10.0 → 300.0 ms per call, 99% of the difference"; !strings.Contains(got.Reason, want) {
+		t.Errorf("reason = %q, want it to contain %q", got.Reason, want)
 	}
 }

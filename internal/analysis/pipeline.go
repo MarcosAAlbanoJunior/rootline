@@ -210,7 +210,21 @@ func correlationCheck(git Git, s Symptom) Check {
 
 // finishCorrelation completes the commit_correlation check after the candidates were correlated.
 func finishCorrelation(c Check, s Symptom, cands []Candidate, scored []scoredCandidate) Check {
-	if c.Status == CheckRan {
+	// The caller hook annotates database spans only, so a slow call has no stack to correlate
+	// (ADR-0031); saying so keeps a missing commit from reading as "no commit changed it".
+	var noStack []string
+	otherStackless := false // a candidate the caller hook would give a stack to
+	for i, sc := range scored {
+		if sc.c.Type != detector.TypeSlowCall && len(sc.c.Stack) == 0 {
+			otherStackless = true
+		}
+		if sc.c.Type == detector.TypeSlowCall {
+			noStack = append(noStack, fmt.Sprintf("%s slow_call: the span of the call to %s has no app stack (the caller hook annotates database spans only)",
+				cands[i].ID, sc.c.Target))
+		}
+	}
+	switch c.Status {
+	case CheckRan:
 		var touched []string
 		for i, sc := range scored {
 			if sc.touch != nil {
@@ -223,15 +237,23 @@ func finishCorrelation(c Check, s Symptom, cands []Candidate, scored []scoredCan
 		} else {
 			c.Reason = "touched: " + strings.Join(touched, "; ")
 		}
-		return c
-	}
-	if c.Status == "" {
+		if len(noStack) > 0 {
+			c.Reason += "; " + strings.Join(noStack, "; ")
+		}
+	case "":
 		c.Status = CheckNotApplicable
-		if len(scored) == 0 {
+		const generic = "no candidate has an app stack to compare with the changed lines"
+		const hookHint = "Install the caller hook to get the app stack on database spans; see docs/guia-instrumentacao.md."
+		switch {
+		case len(scored) == 0:
 			c.Reason = "no candidate to correlate"
-		} else {
-			c.Reason = "no candidate has an app stack to compare with the changed lines"
-			c.Hint = "Install the caller hook to get the app stack on database spans; see docs/guia-instrumentacao.md."
+		case len(noStack) == 0:
+			c.Reason, c.Hint = generic, hookHint
+		case otherStackless:
+			c.Reason, c.Hint = generic+"; "+strings.Join(noStack, "; "), hookHint
+		default:
+			c.Reason = strings.Join(noStack, "; ")
+			c.Hint = "The location is the route's handler, approximate. Annotating HTTP and RPC client spans with the app stack is on the roadmap."
 		}
 	}
 	return c

@@ -398,6 +398,14 @@ func TraceShapeCheck(b Breakdown, promoted *Candidate) Check {
 	top := b.Rows[0]
 	c.Reason = fmt.Sprintf("%s; dominant: %s, %.0f%% of the difference; nothing promoted",
 		means, top.Dependency, top.Explained*100)
+	if top.Explained >= MinExplained-epsilon {
+		switch top.Dependency.Kind {
+		case KindDatabase:
+			c.Reason += ": a slower database is not promoted: its origin is outside the trace (index, lock, pool)"
+		case KindOwnTime:
+			c.Reason += ": a larger own time is not promoted: its origin is outside the trace (CPU, lock, uninstrumented wait)"
+		}
+	}
 	return c
 }
 

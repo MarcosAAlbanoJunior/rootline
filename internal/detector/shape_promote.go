@@ -1,6 +1,10 @@
 package detector
 
-import "github.com/MarcosAAlbanoJunior/rootline/internal/trace"
+import (
+	"math"
+
+	"github.com/MarcosAAlbanoJunior/rootline/internal/trace"
+)
 
 // Cause types of the trace shape (ADR-0031). The target of both is the dependency.
 const (
@@ -31,8 +35,14 @@ func ShapeMechanism(b Breakdown) (typ string, row DependencyShare, ok bool) {
 		if r.Dependency.Kind == KindOwnTime || r.Explained < MinExplained-epsilon {
 			continue
 		}
-		if r.Bad.Presence-r.Baseline.Presence >= MinPresenceRise-epsilon {
+		change := r.Bad.Presence - r.Baseline.Presence
+		if change >= MinPresenceRise-epsilon {
 			return TypeAddedWork, r, true
+		}
+		external := r.Dependency.Kind == KindHTTP || r.Dependency.Kind == KindRPC
+		slower := r.Baseline.MsPerCall > 0 && r.Bad.MsPerCall >= MinCallSlowdown*r.Baseline.MsPerCall-epsilon
+		if external && slower && math.Abs(change) < MaxPresenceChange-epsilon {
+			return TypeSlowCall, r, true
 		}
 	}
 	return "", DependencyShare{}, false
@@ -45,7 +55,8 @@ const ReasonNoCommonFrame = "no_common_frame"
 // PromoteShape returns the candidate of the mechanism the breakdown supports (ADR-0031): its target
 // is the dependency, its confidence medium and its score the explained fraction. An added_work is
 // located at the innermost app frame common to the stacks of the operations whose presence rose;
-// bad holds the traces of the bad version the breakdown read.
+// bad holds the traces of the bad version the breakdown read. A slow_call has no level-1 location:
+// the span of the call carries no app stack.
 func PromoteShape(env Env, sha string, b Breakdown, bad []VersionTrace) (Candidate, bool) {
 	typ, r, ok := ShapeMechanism(b)
 	if !ok {
