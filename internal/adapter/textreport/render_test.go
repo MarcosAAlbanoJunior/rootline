@@ -79,6 +79,31 @@ func TestRender_ConclusiveResult(t *testing.T) {
 	})
 }
 
+func TestRender_CauseWithoutLatencyRegressionShowsTheMissingThresholdAndTheWarning(t *testing.T) {
+	inLoop := true
+	loc := &analysis.Location{Level: 1, Function: "example.com/demo-app/internal/books.attachAuthors",
+		File: "demo-app/internal/books/authors.go", Line: 27, InLoop: &inLoop}
+	golden(t, "cause_without_regression.md", analysis.Result{
+		SchemaVersion: analysis.SchemaVersion, Mode: analysis.ModeDetectors, Symptom: symptom(),
+		Status: analysis.StatusCauseFound,
+		Cause:  &analysis.Cause{CandidateID: "C1", Type: analysis.TypeNPlusOne, Confidence: "high", Location: loc},
+		Candidates: []analysis.Candidate{{ID: "C1", Type: analysis.TypeNPlusOne, Score: 1.25, Confidence: "high",
+			Location: loc, Evidence: []string{"E1"}}},
+		Evidence: []any{
+			analysis.RepeatedQueryEvidence{ID: "E1", Kind: "repeated_query", Query: "SELECT name FROM authors WHERE id = $1",
+				GroupSizeMedian: 5, RowsMedian: 1, PlusOneMatchedRatio: 1, TracesAffected: 40, TracesTotal: 40},
+		},
+		Observations: []string{},
+		Checks: []analysis.Check{
+			{ID: "symptom_regression", Status: analysis.CheckRan,
+				Reason: "baseline 2222222: n=40, p50 8.0 ms, p95 140.0 ms; bad 1111111: n=40, p50 10.4 ms, p95 68.6 ms; n ratio 1.00; no latency regression: p50 1.30x (+2.40 ms): under 1.5x and under 2x; p95 0.49x (-71.40 ms): under 2x",
+				Hint:   "The detectors ran anyway. If this is not the operation that got slower, find it with rootline symptoms."},
+			{ID: "n_plus_one", Status: analysis.CheckRan, Reason: "1 candidate(s) in 40 traces"},
+		},
+		Warnings: []string{"the cause is in the code of the operation, but the operation has no latency regression (see symptom_regression): the detectors read the shape of the traces, not their latency, so the cause may not explain the slowdown you are after; rootline symptoms shows whether another operation regressed"},
+	})
+}
+
 func TestRender_InconclusiveResultListsSkippedChecksFirst(t *testing.T) {
 	golden(t, "inconclusive.md", analysis.Result{
 		SchemaVersion: analysis.SchemaVersion, Mode: analysis.ModeDetectors, Symptom: symptom(),

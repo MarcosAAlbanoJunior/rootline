@@ -1,8 +1,10 @@
 package analysis
 
 import (
+	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // Regression thresholds (ADR-0032). They are constants until a real case asks for others.
@@ -85,15 +87,79 @@ func Regress(baseline, bad VersionSample) Regression {
 		return r
 	}
 	b, w := r.Baseline, r.Bad
-	p50 := w.P50 >= LatencyP50Ratio*b.P50 && w.P50-b.P50 >= MinLatencyDeltaMs
-	p50Doubled := w.P50 >= LatencyP50DoubledRatio*b.P50 && w.P50-b.P50 >= MinP50DoubledDeltaMs &&
-		w.P50 >= MinP50DoubledBadMs
-	p95 := w.P95 >= LatencyP95Ratio*b.P95 && w.P95-b.P95 >= MinLatencyDeltaMs
-	r.Latency = p50 || p50Doubled || p95
+	for _, br := range latencyBranches {
+		if br.miss(b, w) == "" {
+			r.Latency = true
+		}
+	}
 	// The epsilon keeps a rise of exactly one point from failing on float rounding.
 	r.Error = w.ErrorRate-b.ErrorRate >= MinErrorRateDelta-1e-9 && w.ErrorRate >= ErrorRateRatio*b.ErrorRate
 	return r
 }
+
+// latencyBranch is one way latency regresses: the percentile grows at least ratio times, with at
+// least floorMs more.
+type latencyBranch struct {
+	percentile string
+	of         func(VersionStats) float64
+	ratio      float64
+	floorMs    float64
+	minBadMs   float64 // the bad version's percentile must also reach it; 0 for no minimum
+}
+
+// latencyBranches keeps the branches of one percentile next to each other: LatencyShortfall groups
+// them by runs.
+var latencyBranches = []latencyBranch{
+	{"p50", p50Of, LatencyP50Ratio, MinLatencyDeltaMs, 0},
+	{"p50", p50Of, LatencyP50DoubledRatio, MinP50DoubledDeltaMs, MinP50DoubledBadMs},
+	{"p95", p95Of, LatencyP95Ratio, MinLatencyDeltaMs, 0},
+}
+
+func p50Of(s VersionStats) float64 { return s.P50 }
+func p95Of(s VersionStats) float64 { return s.P95 }
+
+// miss says which threshold of the branch the bad version did not reach, the ratio before the
+// floor and the floor before the minimum, or "" when the branch regressed.
+func (br latencyBranch) miss(base, bad VersionStats) string {
+	b, w := br.of(base), br.of(bad)
+	// The epsilon keeps a value exactly at a threshold from missing it on float rounding.
+	switch {
+	case w < br.ratio*b-1e-9:
+		return fmt.Sprintf("under %gx", br.ratio)
+	case w-b < br.floorMs-1e-9:
+		return fmt.Sprintf("under the %g ms floor", br.floorMs)
+	case w < br.minBadMs-1e-9:
+		return fmt.Sprintf("bad %s under %g ms", br.percentile, br.minBadMs)
+	}
+	return ""
+}
+
+// LatencyShortfall says, per percentile, its ratio and difference and the threshold each branch
+// of the latency rule missed, e.g. "p50 1.30x (+2.40 ms): under 1.5x and under 2x; p95 0.49x
+// (-71.40 ms): under 2x". It is meant for an operation without a latency regression.
+func (r Regression) LatencyShortfall() string {
+	var parts []string
+	for i := 0; i < len(latencyBranches); {
+		br := latencyBranches[i]
+		var misses []string
+		for ; i < len(latencyBranches) && latencyBranches[i].percentile == br.percentile; i++ {
+			if m := latencyBranches[i].miss(r.Baseline, r.Bad); m != "" {
+				misses = append(misses, m)
+			}
+		}
+		b, w := br.of(r.Baseline), br.of(r.Bad)
+		from := "from 0 ms"
+		if b != 0 {
+			from = fmt.Sprintf("%.2fx", roundDown(w/b))
+		}
+		parts = append(parts, fmt.Sprintf("%s %s (%+.2f ms): %s", br.percentile, from, roundDown(w-b), strings.Join(misses, " and ")))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// roundDown keeps two decimals without rounding up, so that a value that missed a threshold is
+// never shown at it: 1.9954x prints as 1.99x, not 2.00x.
+func roundDown(x float64) float64 { return math.Floor(x*100+1e-6) / 100 }
 
 func statsOf(s VersionSample) VersionStats {
 	st := VersionStats{N: len(s.DurationsMs)}

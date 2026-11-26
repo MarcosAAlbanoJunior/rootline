@@ -26,28 +26,29 @@ func sampleOf(vts []versionTrace) VersionSample {
 }
 
 // regressionChecks are the symptom_regression and error_rate checks (ADR-0027): whether the
-// operation really got slower, and whether its errors rose, by the rule of ADR-0032.
-func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
-	reg := Check{ID: CheckSymptomRegression}
-	errs := Check{ID: CheckErrorRate}
+// operation really got slower, and whether its errors rose, by the rule of ADR-0032. noLatency
+// says the rule ran and found no latency regression.
+func regressionChecks(s Symptom, bad, good []versionTrace) (reg, errs Check, noLatency bool) {
+	reg = Check{ID: CheckSymptomRegression}
+	errs = Check{ID: CheckErrorRate}
 	badSample := sampleOf(bad)
 	badStats := statsOf(badSample)
 	switch {
 	case len(bad) == 0:
 		reg.Status, reg.Reason = CheckNotApplicable, "no traces of the operation in the bad version"
 		errs.Status, errs.Reason = CheckNotApplicable, reg.Reason
-		return reg, errs
+		return reg, errs, false
 	case s.BaselineVersion == "":
 		reg.Status, reg.Reason = CheckNotApplicable, "no baseline version to compare with"
 		reg.Hint = "Pass --baseline-version to check that the operation regressed; rootline symptoms finds the versions and the operation."
 		errs.Status = CheckNotApplicable
 		errs.Reason = "no baseline version; bad version " + rate(badSample.Errors, badStats)
-		return reg, errs
+		return reg, errs, false
 	case len(good) == 0:
 		reg.Status = CheckNotApplicable
 		reg.Reason = fmt.Sprintf("no traces of the operation in baseline version %s", s.BaselineVersion)
 		errs.Status, errs.Reason = CheckNotApplicable, reg.Reason+"; bad version "+rate(badSample.Errors, badStats)
-		return reg, errs
+		return reg, errs, false
 	}
 
 	goodSample := sampleOf(good)
@@ -61,15 +62,14 @@ func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 		reg.Reason = fmt.Sprintf("fewer than %d traces in a version (%s)", MinRegressionSample, stats)
 		reg.Hint = fmt.Sprintf("Record more traffic of this operation: at least %d traces in each version.", MinRegressionSample)
 		errs.Status, errs.Reason, errs.Hint = CheckSkipped, fmt.Sprintf("fewer than %d traces in a version (%s)", MinRegressionSample, rates), reg.Hint
-		return reg, errs
+		return reg, errs, false
 	}
 
 	reg.Status = CheckRan
-	ratios := fmt.Sprintf("p50 %.1fx, p95 %.1fx", r.P50Ratio(), r.P95Ratio())
 	if r.Latency {
-		reg.Reason = fmt.Sprintf("%s; latency regression (%s)", stats, ratios)
+		reg.Reason = fmt.Sprintf("%s; latency regression (p50 %.1fx, p95 %.1fx)", stats, r.P50Ratio(), r.P95Ratio())
 	} else {
-		reg.Reason = fmt.Sprintf("%s; no latency regression (%s)", stats, ratios)
+		reg.Reason = fmt.Sprintf("%s; no latency regression: %s", stats, r.LatencyShortfall())
 		reg.Hint = "The detectors ran anyway. If this is not the operation that got slower, find it with rootline symptoms."
 	}
 	if r.NRatio() < disappearanceRatio {
@@ -81,8 +81,12 @@ func regressionChecks(s Symptom, bad, good []versionTrace) (Check, Check) {
 		errs.Reason += "; error regression"
 		errs.Hint = "Rootline v1 analyzes latency only: the rise in errors is reported, but its cause is not analyzed."
 	}
-	return reg, errs
+	return reg, errs, !r.Latency
 }
+
+// warningCauseWithoutRegression is added to a Result with a Cause in an operation the rule found
+// without a latency regression (ADR-0032).
+const warningCauseWithoutRegression = "the cause is in the code of the operation, but the operation has no latency regression (see symptom_regression): the detectors read the shape of the traces, not their latency, so the cause may not explain the slowdown you are after; rootline symptoms shows whether another operation regressed"
 
 // hintClientTimeouts explains an error rate of zero next to a ceiling.
 const hintClientTimeouts = "No trace ended in error. If the ceiling of the truncated_traces check is a timeout of the client, that is expected: a request the client gave up on is usually not marked as an error on the server span."

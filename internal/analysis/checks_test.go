@@ -182,10 +182,74 @@ func TestSymptomRegressionCheck_WithoutLatencyRegressionTheDetectorsStillRun(t *
 	m := run(t, src, fakeGit{}, symptom)
 	c := check(t, m, "symptom_regression")
 	wantStatus(t, c, analysis.CheckRan)
-	contains(t, c, "reason", "no latency regression")
+	contains(t, c, "reason", "no latency regression: p50 1.00x (+0.00 ms): under 1.5x and under 2x; p95 1.00x (+0.00 ms): under 2x")
 	contains(t, c, "hint", "rootline symptoms")
 	if m["status"] != analysis.StatusCauseFound {
 		t.Errorf("status = %v, want cause_found as before", m["status"])
+	}
+}
+
+// spreadTraces has n traces of fn lasting from ms on, a tenth of a millisecond apart: traces that
+// all end together would be a ceiling.
+func spreadTraces(prefix string, n int, ms float64, fn func(string) []trace.Span) source {
+	var out source
+	for i := 0; i < n; i++ {
+		out = append(out, lasting(ms+float64(i)/10, fn)(fmt.Sprintf("%s%02d", prefix, i))...)
+	}
+	return out
+}
+
+func warningAboutCauseWithoutRegression(m map[string]any) (string, bool) {
+	for _, w := range list(m, "warnings") {
+		if s := w.(string); strings.Contains(s, "no latency regression") {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+func TestCauseWithoutLatencyRegressionWarnsThatItMayNotExplainTheSlowdown(t *testing.T) {
+	m := run(t, joined(spreadTraces("bad", 30, 1, badTrace), spreadTraces("good", 30, 1, healthyTrace)), fakeGit{}, symptom)
+	if m["status"] != analysis.StatusCauseFound {
+		t.Fatalf("status = %v, want cause_found", m["status"])
+	}
+	w, ok := warningAboutCauseWithoutRegression(m)
+	if !ok {
+		t.Fatalf("warnings = %v, want the warning about a cause without latency regression", m["warnings"])
+	}
+	for _, sub := range []string{"shape of the traces, not their latency", "may not explain the slowdown", "rootline symptoms"} {
+		if !strings.Contains(w, sub) {
+			t.Errorf("warning %q lacks %q", w, sub)
+		}
+	}
+	if conf := obj(t, m["cause"])["confidence"]; conf != "high" {
+		t.Errorf("confidence = %v, want high: the warning does not change it", conf)
+	}
+}
+
+func TestNoWarningAboutCauseWithoutRegression(t *testing.T) {
+	noBaseline := symptom
+	noBaseline.BaselineVersion = ""
+	for _, tc := range []struct {
+		name   string
+		src    source
+		s      analysis.Symptom
+		status string
+	}{
+		{"with a latency regression", joined(spreadTraces("bad", 30, 20, badTrace), spreadTraces("good", 30, 1, healthyTrace)), symptom, analysis.StatusCauseFound},
+		{"without a cause", joined(spreadTraces("bad", 30, 1, healthyTrace), spreadTraces("good", 30, 1, healthyTrace)), symptom, analysis.StatusInconclusive},
+		{"without a baseline", spreadTraces("bad", 30, 1, badTrace), noBaseline, analysis.StatusCauseFound},
+		{"below the minimum sample", joined(spreadTraces("bad", 29, 1, badTrace), spreadTraces("good", 30, 1, healthyTrace)), symptom, analysis.StatusCauseFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := run(t, tc.src, fakeGit{}, tc.s)
+			if m["status"] != tc.status {
+				t.Fatalf("status = %v, want %s", m["status"], tc.status)
+			}
+			if w, ok := warningAboutCauseWithoutRegression(m); ok {
+				t.Errorf("unexpected warning %q", w)
+			}
+		})
 	}
 }
 
