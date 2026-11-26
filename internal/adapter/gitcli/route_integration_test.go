@@ -36,3 +36,37 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {}
 		t.Fatalf("got %q in %q (test files and testdata must be ignored)", fn, file)
 	}
 }
+
+// The whole route is written nowhere: the grep has to find the file by a part of it.
+func TestRouteHandlerLookupInNestedRouteGroupsOverARealRepository(t *testing.T) {
+	r := newRepo(t)
+	r.write("go.mod", "module example.com/chat\n\ngo 1.27\n")
+	r.write("httpapi/server.go", `package httpapi
+
+func (a *api) routes(r Router) {
+	r.Route("/rooms", func(r Router) {
+		r.Route("/{roomID}", func(r Router) {
+			r.Get("/messages", a.listMessages)
+			r.Post("/messages", a.postMessage)
+		})
+	})
+}
+`)
+	r.write("httpapi/messages.go", `package httpapi
+
+type api struct{}
+
+func (a *api) listMessages() {}
+func (a *api) postMessage()  {}
+`)
+	sha := r.commit("c1")
+
+	idx := goindex.New(gitcli.New(r.dir))
+	fn, file, found, err := idx.FindRouteHandler(sha, "POST", "/rooms/{roomID}/messages")
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if fn != "example.com/chat/httpapi.(*api).postMessage" || file != "httpapi/messages.go" {
+		t.Fatalf("got %q in %q", fn, file)
+	}
+}
