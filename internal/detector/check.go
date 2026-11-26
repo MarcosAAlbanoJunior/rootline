@@ -96,6 +96,9 @@ func MissingIndexCheck(traces [][]trace.Span, planned bool, cands []Candidate, s
 	return c
 }
 
+// HasQuerySpans reports whether the traces have a query span for the detectors to read.
+func HasQuerySpans(traces [][]trace.Span) bool { return countQuerySpans(traces) > 0 }
+
 func countQuerySpans(traces [][]trace.Span) int {
 	n := 0
 	for _, spans := range traces {

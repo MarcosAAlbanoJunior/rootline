@@ -64,8 +64,9 @@ func splitAtCeiling(bad []versionTrace) (Ceiling, []versionTrace) {
 	return c, kept
 }
 
-// truncatedCheck reports the ceiling; excluded is how many traces left the N+1 count.
-func truncatedCheck(c Ceiling, excluded int) Check {
+// truncatedCheck reports the ceiling. nPlusOneRan says whether the N+1 detector had query spans to
+// count; excluded is how many traces left its count.
+func truncatedCheck(c Ceiling, excluded int, nPlusOneRan bool) Check {
 	ch := Check{ID: CheckTruncatedTraces}
 	switch {
 	case c.N == 0:
@@ -78,9 +79,11 @@ func truncatedCheck(c Ceiling, excluded int) Check {
 		ch.Reason = fmt.Sprintf("%d of %d traces (%.0f%%) stopped within %.0f%% of %.1f ms in the bad version",
 			c.Traces, c.N, 100*float64(c.Traces)/float64(c.N), CeilingBand*100, c.AtMs)
 		ch.Hint = "These traces were probably cut by a timeout: the real latency is higher, and they have fewer child spans than the work done."
-		if excluded > 0 {
+		switch {
+		case !nPlusOneRan:
+		case excluded > 0:
 			ch.Hint += " They were left out of the N+1 count."
-		} else {
+		default:
 			ch.Hint += " With no complete trace left, the N+1 counted them anyway."
 		}
 	default:
