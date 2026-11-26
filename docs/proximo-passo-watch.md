@@ -2,7 +2,7 @@
 id: PROP-2026-11-26-watch
 title: Rootline automático por deploy, lendo os traces do backend de observabilidade
 status: Proposta
-summary: Tirar os passos manuais. Um rootline watch lê os traces do Tempo ou do Jaeger, percebe cada versão nova, compara cada operação com a versão anterior assim que houver amostra e publica a Causa. Nada roda no CI nem em cada pod. Muda o ADR-0008 e o escopo do brief, e exige ADRs antes dos tickets.
+summary: Tirar os passos manuais. Um rootline watch lê os traces do Tempo ou do Jaeger, percebe cada versão nova, compara cada operação com a versão anterior assim que houver amostra e publica a Causa. Nada roda no CI nem em cada pod. Guarda só um perfil agregado por versão; os traces brutos ficam no backend. Muda o ADR-0008 e o escopo do brief, e exige ADRs antes dos tickets.
 modules: [analysis, adapter, cmd/rootline]
 ---
 
@@ -131,8 +131,11 @@ A referência é a versão anterior que tem a amostra mínima naquela operação
 implícita do [ADR-0005](adr/0005-contrato-do-sintoma-e-escolha-da-referencia.md). Ela não precisa
 ser do mesmo horário. Duas consequências:
 
-- **A retenção do backend tem que cobrir a referência.** Se o deploy anterior foi há três semanas e
-  o backend guarda sete dias, a operação fica sem referência, e o watch diz isso.
+- **A retenção do backend limita os traces brutos da referência.** Se o deploy anterior foi há três
+  semanas e o backend guarda sete dias, os traces brutos dela já sumiram. O
+  [perfil agregado](#onde-ficam-os-traces-e-o-que-o-rootline-guarda) da versão continua, e basta para
+  decidir a Regressão (n, p50 e p95 por operação). O que precisa dos traces brutos das duas versões,
+  como a divisão do tempo da `trace_shape`, sai como pulado, com o motivo nas Verificações.
 - **Dois deploys seguidos.** Se `9b7d31c` for substituída antes de uma operação juntar amostra, a
   comparação passa a ser entre a última versão com amostra e a atual. A correlação já olha todos os
   commits entre os dois SHAs (`RevList`), então o commit culpado continua aparecendo.
@@ -176,9 +179,57 @@ Duas formas, que podem coexistir:
   deploy key só de leitura basta.
 - **Destino de publicação** (webhook do Slack, token do GitHub com escopo mínimo).
 - **Estado próprio:** quais versões e operações já foram comparadas e publicadas, para não publicar
-  de novo depois de um reinício. Pode ser um arquivo pequeno num volume; não precisa de banco.
+  de novo depois de um reinício, e o perfil agregado de cada versão (abaixo). Cabe num arquivo ou num
+  SQLite em Go puro, sem cgo ([ADR-0007](adr/0007-go-com-cgo-isolado-e-indice-go-ast.md)), num
+  volume.
 
 O watch nunca escreve no backend, no repositório nem no banco da aplicação.
+
+### Onde ficam os traces e o que o Rootline guarda
+
+O Rootline não guarda os traces brutos. Eles ficam no backend que o time já usa, com a retenção dele.
+O watch só os lê, com a configuração no próprio Rootline:
+
+```yaml
+traces:
+  backend: tempo
+  url: http://tempo.observability:3200
+  token: ${TEMPO_TOKEN}   # só leitura
+repo: /data/pedidos-api   # clone, atualizado com git fetch
+```
+
+Na aplicação não muda nada além do que o [guia](guia-instrumentacao.md) já pede: o hook e o
+`service.version`. Cada time cai num de três casos:
+
+| Situação do time | O que fazer |
+|---|---|
+| Já usa Tempo ou Jaeger | Nada na aplicação nem no Collector. Só apontar o Rootline para o backend |
+| Usa um fornecedor (Datadog, Honeycomb, Grafana Cloud…) | Um adapter por fornecedor, sujeito ao limite e ao custo da API de cada um, ou um segundo exporter no Collector mandando uma cópia para um Tempo pequeno, só do Rootline |
+| Não tem backend | Um `docker compose` e um chart Helm com Tempo, que guarda em object storage |
+
+O que o Rootline guarda é um **perfil agregado por versão**, calculado pelo watch enquanto acompanha
+o deploy. Por operação: n, p50, p95 e taxa de erro. Por função da aplicação (do hook): as rotas que
+passam por ela, as chamadas por minuto, as queries normalizadas que ela dispara, quantas vezes por
+requisição e quantas linhas cada uma devolve. Por exemplo:
+
+```
+versão 9b7d31c
+  orders.(*Service).List
+    rotas: GET /customers/{id}/orders (4 000 req/min)
+    queries: SELECT id, sku, qty FROM items WHERE order_id = $1 → 24 por requisição, 3 linhas cada
+  GET /customers/{id}/orders: n 4 008, p50 61,2 ms, p95 118,5 ms, erros 0,1%
+```
+
+São kilobytes por versão. O perfil:
+
+- **sobrevive à retenção do backend**, e por isso uma referência antiga continua comparável;
+- **responde rápido**, sem consultar o backend a cada pergunta. É dele que o MCP para agentes do
+  [roadmap](roadmap.md) tira o `function_in_production`;
+- **é a base do histórico de impacto** (versão a versão, o que mudou em produção);
+- **tem menos dado sensível** que um trace: queries normalizadas, contagens e latências, nada da
+  requisição.
+
+Os traces brutos só são buscados quando o `analyze` precisa de evidência detalhada.
 
 ## Ciclo de vida de uma operação numa versão nova
 
@@ -218,6 +269,9 @@ continua só com a stdlib. As mudanças ficam nas portas, nos adapters e no `cmd
   ([ADR-0030](adr/0030-regressao-symptoms-e-carga-desigual.md), mantida no ADR-0032). Com janelas de
   durações diferentes, a contagem bruta deixa de servir. Precisa passar a comparar taxa (traces por
   minuto) ou ser desligada fora do canary.
+- **Perfil agregado.** Um tipo de domínio para o perfil de uma versão, calculado dos spans (sem I/O,
+  testável em milissegundos), e uma porta para gravá-lo e lê-lo, com um adapter de arquivo ou SQLite.
+  A regra de Regressão passa a aceitar a referência vinda de um perfil, e não só de spans.
 - **Limite de traces por versão.** Buscar milhares de traces completos no backend é caro. O watch
   busca uma amostra limitada por operação e versão (por exemplo, até 200), e o Resultado diz quantos
   usou.
@@ -236,6 +290,8 @@ continua só com a stdlib. As mudanças ficam nas portas, nos adapters e no `cmd
 6. **Escrita em sistema externo.** O [brief](brief.md) deixa fora da v1 "qualquer escrita em
    sistemas externos". Publicar no Slack ou no GitHub é escrita. Essa linha do brief precisa mudar,
    restrita à publicação do Resultado.
+7. **Perfil agregado por versão.** O que entra no perfil, onde ele fica, por quanto tempo, e quais
+   Verificações passam a aceitar a referência vinda dele quando os traces brutos já expiraram.
 
 ## Riscos e perguntas em aberto
 
@@ -272,7 +328,7 @@ backend).
 2. **`rootline deploy-check`.** Uma passada: dada a versão nova, compara cada operação com amostra e
    imprime o Resultado em JSON. Já dá para rodar num job pós-deploy.
 3. **`rootline watch`.** Laço contínuo, detecção da versão nova pelos traces, gatilho por amostra,
-   prazo e estado persistido.
+   prazo, estado persistido e o perfil agregado de cada versão.
 4. **Publicadores.** Slack e GitHub, atrás da porta de publicação.
 5. **Sinal estrutural antecipado.**
 6. **Canary.** Referência pela outra versão ativa.
@@ -296,4 +352,7 @@ com LLM) continua, porque é ela que decide quantas mensagens trazem uma Causa.
 - Alerta de capacidade ou de SLO.
 - Problema de um pod ou nó isolado.
 - Correção automática, abertura de PR ou qualquer escrita além da publicação do Resultado.
+- Receber OTLP direto e guardar só os agregados, sem backend. Dispensaria o Tempo para quem não tem
+  um, mas faz do Rootline infraestrutura de ingestão (volume, perda de dado). Fica para quando houver
+  quem peça.
 - UI própria. A saída continua sendo texto, JSON e as mensagens nos destinos.
