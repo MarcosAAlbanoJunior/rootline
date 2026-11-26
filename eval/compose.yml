@@ -1,5 +1,10 @@
 # Used by `rootline-eval record`. Ports and the collector output dir come from the environment.
 services:
+  # The external HTTP service of the scenarios whose cause is a slower call (ADR-0031).
+  stub:
+    image: rootline-eval-stub
+    build: ./stub
+    ports: ["${ROOTLINE_STUB_PORT:-58090}:8090"]
   postgres:
     image: postgres:19.0
     environment:

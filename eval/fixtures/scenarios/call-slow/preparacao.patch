@@ -1,0 +1,194 @@
+diff --git a/demo-app/internal/shipping/client.go b/demo-app/internal/shipping/client.go
+new file mode 100644
+index 0000000..abeafd5
+--- /dev/null
++++ b/demo-app/internal/shipping/client.go
+@@ -0,0 +1,60 @@
++package shipping
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"time"
++
++	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
++)
++
++// ratesURL is the endpoint of the rates service.
++const ratesURL = "http://stub:8090/v1/rates"
++
++// Rates is what the rates service charges.
++type Rates struct {
++	StandardCents int `json:"standard_cents"`
++}
++
++// Client calls the rates service.
++type Client struct {
++	http *http.Client
++}
++
++// NewClient returns a Client. A non-empty addr is dialed in place of the host of the URL, for an
++// environment where the service name does not resolve.
++func NewClient(addr string) *Client {
++	transport := http.DefaultTransport.(*http.Transport).Clone()
++	if addr != "" {
++		dialer := &net.Dialer{Timeout: 2 * time.Second}
++		transport.Proxy = nil
++		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
++			return dialer.DialContext(ctx, network, addr)
++		}
++	}
++	return &Client{http: &http.Client{Timeout: 5 * time.Second, Transport: otelhttp.NewTransport(transport)}}
++}
++
++// Rates returns the current rates.
++func (c *Client) Rates(ctx context.Context) (Rates, error) {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ratesURL, nil)
++	if err != nil {
++		return Rates{}, err
++	}
++	resp, err := c.http.Do(req)
++	if err != nil {
++		return Rates{}, err
++	}
++	defer func() { _ = resp.Body.Close() }()
++	if resp.StatusCode != http.StatusOK {
++		return Rates{}, fmt.Errorf("shipping: rates service answered %d", resp.StatusCode)
++	}
++	var rates Rates
++	if err := json.NewDecoder(resp.Body).Decode(&rates); err != nil {
++		return Rates{}, err
++	}
++	return rates, nil
++}
+diff --git a/demo-app/internal/shipping/handler.go b/demo-app/internal/shipping/handler.go
+new file mode 100644
+index 0000000..ea84d99
+--- /dev/null
++++ b/demo-app/internal/shipping/handler.go
+@@ -0,0 +1,63 @@
++package shipping
++
++import (
++	"context"
++	"encoding/json"
++	"log/slog"
++	"net/http"
++	"strconv"
++)
++
++// Orders is what the handler needs from the repository.
++type Orders interface {
++	LatestOrderID(ctx context.Context, customerID int64) (int64, error)
++}
++
++// RateSource is what the handler needs from the rates client.
++type RateSource interface {
++	Rates(ctx context.Context) (Rates, error)
++}
++
++// Quote is the shipping price of the customer's latest order.
++type Quote struct {
++	OrderID int64 `json:"order_id"`
++	Rates   Rates `json:"rates"`
++}
++
++// Handler serves the shipping quote HTTP endpoint.
++type Handler struct {
++	orders Orders
++	rates  RateSource
++}
++
++// NewHandler returns a Handler over orders and rates.
++func NewHandler(orders Orders, rates RateSource) *Handler {
++	return &Handler{orders: orders, rates: rates}
++}
++
++// Register mounts the route on mux.
++func (h *Handler) Register(mux *http.ServeMux) {
++	mux.HandleFunc("GET /customers/{id}/shipping-quote", h.quote)
++}
++
++func (h *Handler) quote(w http.ResponseWriter, r *http.Request) {
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.Error(w, "invalid customer id", http.StatusBadRequest)
++		return
++	}
++	orderID, err := h.orders.LatestOrderID(r.Context(), id)
++	if err != nil {
++		slog.Error("shipping quote failed", "err", err)
++		http.Error(w, "internal error", http.StatusInternalServerError)
++		return
++	}
++	rates, err := h.rates.Rates(r.Context())
++	if err != nil {
++		slog.Error("shipping rates failed", "err", err)
++		http.Error(w, "bad gateway", http.StatusBadGateway)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(Quote{OrderID: orderID, Rates: rates})
++}
+diff --git a/demo-app/internal/shipping/repository.go b/demo-app/internal/shipping/repository.go
+new file mode 100644
+index 0000000..238bab8
+--- /dev/null
++++ b/demo-app/internal/shipping/repository.go
+@@ -0,0 +1,33 @@
++// Package shipping is the demo-app's shipping quote: the customer's latest order and the rates of
++// an external service.
++package shipping
++
++import (
++	"context"
++
++	"github.com/jackc/pgx/v5"
++)
++
++// Querier is the subset of pgxpool.Pool used by the repository.
++type Querier interface {
++	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
++}
++
++// Repository reads orders from Postgres.
++type Repository struct {
++	db Querier
++}
++
++// NewRepository returns a Repository over db.
++func NewRepository(db Querier) *Repository {
++	return &Repository{db: db}
++}
++
++// LatestOrderID returns the id of the customer's most recent order.
++func (r *Repository) LatestOrderID(ctx context.Context, customerID int64) (int64, error) {
++	rows, err := r.db.Query(ctx, `SELECT id FROM orders WHERE customer_id = $1 ORDER BY id DESC LIMIT 1`, customerID)
++	if err != nil {
++		return 0, err
++	}
++	return pgx.CollectExactlyOneRow(rows, pgx.RowTo[int64])
++}
+diff --git a/demo-app/main.go b/demo-app/main.go
+index 709ad4c..1d062dc 100644
+--- a/demo-app/main.go
++++ b/demo-app/main.go
+@@ -27,6 +27,7 @@ import (
+ 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+ 
+ 	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/orders"
++	"github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/shipping"
+ 	callerhook "github.com/MarcosAAlbanoJunior/rootline/hook"
+ )
+ 
+@@ -79,6 +80,7 @@ func run() error {
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+ 	orders.NewHandler(orders.NewService(orders.NewRepository(pool))).Register(mux)
++	shipping.NewHandler(shipping.NewRepository(pool), shipping.NewClient(os.Getenv("STUB_ADDR"))).Register(mux)
+ 
+ 	srv := &http.Server{
+ 		Addr:              envOr("LISTEN_ADDR", "127.0.0.1:8080"),

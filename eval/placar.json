@@ -1,24 +1,24 @@
 {
   "detectors_only": {
     "cause": {
-      "hits": 8,
-      "total": 8
+      "hits": 9,
+      "total": 9
     },
     "line": {
       "hits": 8,
-      "total": 8
+      "total": 9
     },
     "commit": {
-      "hits": 8,
-      "total": 8
+      "hits": 9,
+      "total": 9
     },
     "strict": {
       "hits": 8,
-      "total": 8
+      "total": 9
     },
     "line_levels": {
       "level_1": 7,
-      "level_2": 0,
+      "level_2": 1,
       "none": 1
     },
     "detector_false_positive": {
@@ -27,13 +27,22 @@
     },
     "hallucination": {
       "hits": 0,
-      "total": 1
+      "total": 2
     },
     "unwarranted_abstention": {
       "hits": 0,
-      "total": 7
+      "total": 8
     },
     "scenarios": {
+      "call-slow": {
+        "cause": true,
+        "line": false,
+        "commit": true,
+        "strict": false,
+        "line_level": 2,
+        "hallucination": false,
+        "unwarranted_abstention": false
+      },
       "cpu-handler": {
         "cause": true,
         "line": true,

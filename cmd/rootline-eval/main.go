@@ -24,7 +24,7 @@ import (
 
 const usage = `usage:
   rootline-eval generate --scenario <dir> --source <rootline root> --out <dir>
-  rootline-eval record   --scenario <dir> --source <rootline root> --out <dir> [--pg-port n] [--collector-port n] [--app-port n]
+  rootline-eval record   --scenario <dir> --source <rootline root> --out <dir> [--pg-port n] [--collector-port n] [--app-port n] [--stub-port n]
   rootline-eval score    --recordings <dir> --placar eval/placar.json [--update]`
 
 func main() {
@@ -106,12 +106,13 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pg := fs.Int("pg-port", 0, "Postgres host port")
 	col := fs.Int("collector-port", 0, "Collector OTLP HTTP host port")
 	app := fs.Int("app-port", 0, "demo-app host port")
+	stub := fs.Int("stub-port", 0, "stub service host port")
 	if code := parse(fs, args, stderr, "scenario", "source", "out"); code != 0 {
 		return code
 	}
 	err := recording.Record(ctx, recording.RecordOptions{
 		ScenarioDir: *scenario, SourceDir: *source, OutDir: *out,
-		PostgresPort: *pg, CollectorPort: *col, AppPort: *app,
+		PostgresPort: *pg, CollectorPort: *col, AppPort: *app, StubPort: *stub,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "rootline-eval: %v\n", err)

@@ -329,3 +329,23 @@ func TestGenerate_InconclusiveScenarioHasAnAnswerKeyWithoutLocationOrCommit(t *t
 		t.Errorf("answer key = %+v, want %+v", g.AnswerKey, want)
 	}
 }
+
+// The Rootline cannot correlate a commit with a slow call, so its answer expects none; the line is
+// still computed from the marker, in the bad commit.
+func TestGenerate_SlowCallAnswerWithoutACommitComputesTheLineAtTheBadCommit(t *testing.T) {
+	source, scenario := setup(t)
+	editScenario(t, scenario, func(sc map[string]any) {
+		answer := sc["answer"].(map[string]any)
+		answer["cause"], answer["target"] = "slow_call", "stub:8090"
+		delete(answer, "commit")
+	})
+
+	g := generate(t, source, scenario)
+
+	if g.AnswerKey.Line != 4 || g.AnswerKey.CommitLabel != "" {
+		t.Errorf("answer key = %+v, want line 4 and no commit", g.AnswerKey)
+	}
+	if blob := git(t, g.RepoDir, "show", g.Commits[1].SHA+":"+serviceFile); strings.Contains(blob, "rootline:") {
+		t.Errorf("the marker must not be committed:\n%s", blob)
+	}
+}

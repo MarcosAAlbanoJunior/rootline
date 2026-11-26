@@ -99,6 +99,11 @@ func Generate(opts Options) (Generated, error) {
 		Marker: sc.Answer.Marker, CommitLabel: sc.Answer.Commit,
 	}}
 	foundAnswer := false
+	answerAt := sc.Answer.Commit
+	if answerAt == "" && sc.Answer.Cause == causeSlowCall {
+		// No commit is expected of a slow call (ADR-0031); its line is read at the bad version.
+		answerAt = sc.Symptom.Bad
+	}
 	bad := -1
 	marked := make([]*markedLine, len(sc.Distractors))
 	for i, c := range sc.Commits {
@@ -114,7 +119,7 @@ func Generate(opts Options) (Generated, error) {
 				return Generated{}, err
 			}
 		}
-		if sc.Answer.Cause != CauseInconclusive && c.Label == sc.Answer.Commit {
+		if sc.Answer.Cause != CauseInconclusive && c.Label == answerAt {
 			line, err := stripMarker(filepath.Join(repo, filepath.FromSlash(sc.Answer.File)), sc.Answer.Marker)
 			if err != nil {
 				return Generated{}, err
@@ -147,7 +152,7 @@ func Generate(opts Options) (Generated, error) {
 		}
 	}
 	if !foundAnswer && sc.Answer.Cause != CauseInconclusive {
-		return Generated{}, fmt.Errorf("fixture: no commit labeled %q in scenario %s", sc.Answer.Commit, sc.Name)
+		return Generated{}, fmt.Errorf("fixture: no commit labeled %q in scenario %s", answerAt, sc.Name)
 	}
 	for j, d := range sc.Distractors {
 		m := marked[j]
