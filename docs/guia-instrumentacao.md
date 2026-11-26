@@ -273,6 +273,51 @@ O `symptoms` lista as operações que regrediram e imprime o `analyze` pronto da
 `analyze` dá a causa ou `Inconclusive`, e a seção **Checks** diz o que foi verificado, o que foi
 pulado e por quê, com uma dica para cada pulo.
 
+### Escolher a operação
+
+**Quando o `analyze` da sugerida dá `inconclusive`** e outras linhas da tabela têm Regressão, analise
+as seguintes, de cima para baixo, até uma dar a causa. A sugestão é só a de maior razão de p50: a
+causa pode estar na segunda ou na terceira linha. Troque a `--operation` no comando que o `symptoms`
+imprimiu e leia as **Checks** de cada Resultado.
+
+**Quando não há sugestão**, o texto abaixo da tabela diz o motivo:
+
+- **Carga desigual.** Se a carga das duas gravações foi mesmo diferente (ou a máquina estava
+  ocupada), grave de novo com a mesma carga. Se foi a mesma, as requisições ficaram presas na versão
+  ruim, e as colunas abaixo ajudam.
+- **Nenhuma operação destoa** numa regressão generalizada. Use as colunas abaixo.
+- **Nenhuma regrediu.** Confira os SHAs do cabeçalho e se a carga passou pela rota lenta.
+
+Sem sugestão, analise as operações uma a uma, nesta ordem, até uma dar a causa: as de sumiço fora do
+padrão, depois as de início mais cedo, depois o resto na ordem da tabela. Se nenhuma operação com
+Regressão der causa, pare: ela está fora do que o Rootline enxerga. As **Checks** dizem o que ficou
+de fora. Quando a `trace_shape` aponta o tempo próprio, investigue o handler com um profile de CPU e
+as esperas por lock; quando aponta o banco, os planos das queries, os locks e o pool.
+
+Duas colunas dão pistas. Nenhuma delas prova a origem:
+
+- **Sumiço** (`n ratio`, marcado com `drop`): a fração dos traces que a operação manteve. Compare
+  com as outras linhas. Uma operação que sumiu muito mais que as demais é candidata, porque uma
+  requisição presa não termina e não vira span.
+- **Início** (`onset`): quanto tempo a versão ruim levou até a operação ficar lenta. Quem começa
+  bem antes das outras é candidata; quem começa depois pode ser vítima de um recurso já esgotado.
+  Diferenças pequenas não decidem.
+
+Exemplo, com um pool de conexões esgotado:
+
+| Operation | Regression | n ratio | p50 ratio | onset |
+|---|---|---|---|---|
+| GET /orders/{id} | latency and error | 0.20 drop | 4200x | +4.3s |
+| GET /orders | latency and error | 0.20 drop | 1800x | +4.3s |
+| POST /orders | latency and error | 0.20 drop | 17x | +4.6s |
+| POST /jobs/claim | sample < 30 | 0.02 drop | 0.01x | - |
+
+A maior razão de p50 engana: todas as rotas esperam pelo mesmo recurso. Os inícios são quase iguais
+e não decidem. O que destoa é o sumiço do `POST /jobs/claim`, que manteve 2% dos traces contra 20%
+das outras, e é a primeira operação a investigar, mesmo marcada com amostra pequena e sem Regressão.
+Analise-a. Se o Resultado for `inconclusive` (com poucos traces, é provável), olhe o código e os logs
+dessa rota e siga a ordem acima.
+
 ## Limitações atuais
 
 - **Só PostgreSQL pelo pgx v5.** MySQL, MongoDB e `database/sql` com outro driver não são
