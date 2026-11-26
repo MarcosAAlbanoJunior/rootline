@@ -2,7 +2,7 @@
 id: ROADMAP
 title: Radar dos próximos passos do Rootline
 status: Vivo
-summary: Ordem dos próximos passos depois do piloto em dez apps reais. Primeiro tirar o atrito de uso (explicar o inconclusive, achar o sintoma, instalar o hook), depois ampliar o que o Rootline enxerga (forma do trace, erro, outros bancos).
+summary: Ordem dos próximos passos depois do piloto em dez apps reais. Primeiro tirar o atrito de uso (explicar o inconclusive, achar o sintoma, instalar o hook), depois ampliar o que o Rootline enxerga (forma do trace, erro, outros bancos). A próxima grande mudança é o watch automático por deploy; depois dele, a visão é levar a produção para quem escreve o código (MCP para agentes, revisão de PR com dados de produção).
 ---
 
 # Radar dos próximos passos
@@ -20,6 +20,89 @@ Um `rootline watch` que lê os traces do Tempo ou do Jaeger, percebe cada versã
 operação com a anterior assim que houver amostra e publica a Causa, sem passos manuais e sem rodar
 no CI. Proposta completa, com as decisões que pedem ADR e o plano em fatias:
 [proximo-passo-watch.md](proximo-passo-watch.md).
+
+## Visão: levar a produção para o momento em que o código é escrito
+
+Depois do watch, o Rootline tem algo raro: a ligação, sempre atualizada e com evidência, entre o
+comportamento real em produção e a função, a linha e o commit. Hoje ele usa essa ligação para olhar
+para trás (o deploy piorou, qual commit foi?). A visão é usá-la **antes**: quando o código está
+sendo escrito ou revisado, inclusive por um agente.
+
+O gargalo que isso ataca: com boa parte do código escrita por IA, o difícil deixou de ser escrever e
+passou a ser revisar e confiar. Um PR gerado por agente passa nos testes e coloca um N+1, porque nem
+o agente nem o revisor sabem que aquela função roda 4 mil vezes por minuto com 24 pedidos por
+cliente. Essa informação só existe em produção.
+
+Itens que mudam a arquitetura passam por `/grill-me` e ADR, como o resto do radar. A ordem abaixo é
+a sugerida.
+
+### V1. Rootline como ferramenta de agentes de código (MCP)
+
+O Rootline ganha um servidor MCP (`rootline mcp` no laptop do dev ou o próprio watch respondendo por
+HTTP). Nada muda em produção: os pods continuam só emitindo traces, e o Rootline consulta o backend
+de traces e o clone do repositório, só leitura, como hoje.
+
+Ferramentas que o agente chama:
+
+| Ferramenta | O que responde |
+|---|---|
+| `function_in_production(função)` | Rotas que passam por ela, chamadas por minuto, queries que dispara e linhas por query (do hook) |
+| `route_profile(rota)` | p50 e p95 atuais e a divisão do tempo entre banco, chamadas externas e tempo próprio |
+| `deploy_impact(versão)` | O que o watch achou na versão: Regressões, Causas e operações ainda sem amostra |
+| `analyze(...)` | O `analyze` de hoje |
+
+O comportamento que se quer do agente, antes de mudar o código:
+
+> Vou fazer o que você pediu, mas antes consultei a produção. `orders.(*Service).List` atende
+> `GET /customers/{id}/orders`, com 4 mil requisições por minuto e 24 pedidos por cliente em média
+> (4 008 traces da versão `9b7d31c`). Buscar os itens dentro do loop daria 24 queries a mais por
+> requisição, cerca de 96 mil por minuto no Postgres. Vou buscar todos numa query só, com
+> `WHERE order_id = ANY($1)`.
+
+A consulta acontece duas vezes. Antes de escrever, o agente consulta as funções que planeja alterar.
+Ao terminar, consulta de novo cada função que aparece no diff, porque a mudança pode ter tocado algo
+que não estava no plano. A fonte são os traces com o hook, não logs: eles já ligam cada requisição à
+rota, à função, à linha e à query, com contagens.
+
+E depois do deploy: "minha mudança de ontem piorou algo?" vira uma chamada a `deploy_impact`, com a
+Causa, a linha e o commit, sem abrir o painel de observabilidade.
+
+O ciclo fecha quando o watch confirma, no deploy seguinte, que a regressão sumiu. Propor correção
+muita ferramenta propõe; provar com dados de produção que a correção funcionou quase nenhuma prova. O
+Rootline continua sem escrever código: ele dá o diagnóstico e a prova, e o agente faz a mudança.
+
+É barato porque o difícil (ler traces, mapear para o código, comparar versões) já existe. O MCP é
+uma camada fina sobre o watch.
+
+### V2. Revisão de PR com dados de produção
+
+O mesmo dado, num comentário no PR antes do merge: "este PR muda `orders.(*Service).List`, que está
+no caminho de uma rota com 4 mil req/min; a linha 42 passa a chamar `ItemsByOrder` dentro de um loop
+que, em produção, roda 24 vezes por requisição; estimativa de +24 queries por requisição". Junta o
+hook (função → query, com contagens reais), o `go/ast` (o loop no diff) e os traces (cardinalidade e
+tráfego). Nenhum linter sabe quantas vezes o loop roda, e nenhum APM olha o diff.
+
+É a aposta mais difícil: a estimativa pode errar. Por isso ela segue as regras do `analyze`: toda
+afirmação cita a evidência, e sem evidência o comentário diz que não sabe.
+
+### V3. Benchmark aberto de análise de causa raiz
+
+Os cenários com commits reais, o gabarito lacrado, a alucinação medida e o placar público viram um
+benchmark que outras ferramentas de análise de causa raiz rodam, no espírito do SWE-bench para código.
+Pode correr em paralelo, porque a base já existe em `eval/`.
+
+### V4. Custo por commit
+
+Traduzir a Regressão para custo: "o commit `7e2a5f1` acrescenta cerca de 96 mil queries por minuto",
+e, com o custo do banco configurado, quanto isso custa por mês. É o mesmo dado numa unidade que
+gestão entende.
+
+### V5. Histórico de impacto
+
+Cada deploy deixa um registro: quais commits mudaram o comportamento em produção, de que tipo, em que
+parte do código e se vieram de um agente ou de uma pessoa. Com o tempo, ele responde quais partes do
+código mais regridem e se os PRs de agente regridem mais. Pares de diff e efeito real em produção,
+com evidência, quase não existem.
 
 ## Curto prazo: tirar o atrito de uso
 
