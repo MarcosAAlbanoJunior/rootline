@@ -260,14 +260,14 @@ código de cada versão do git, não da cópia de trabalho.
 ## Analisar
 
 ```sh
-go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.1.0
+go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.2.0
 rootline symptoms --traces traces.jsonl --repo .
 rootline analyze --traces traces.jsonl --repo . --service <seu-servico> \
   --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>
 ```
 
-O `rootline` lê o hook da mesma linha de versão (o CLI 0.1.x lê o hook 0.1.x); a Verificação
-`caller_hook` avisa quando eles não combinam e diz qual atualizar.
+O CLI 0.2.x lê o hook 0.1.x; a Verificação `caller_hook` avisa quando eles não combinam e diz
+qual atualizar.
 
 O `symptoms` lista as operações que regrediram e imprime o `analyze` pronto da sugerida. O
 `analyze` dá a causa ou `Inconclusive`, e a seção **Checks** diz o que foi verificado, o que foi
@@ -320,14 +320,35 @@ dessa rota e siga a ordem acima.
 
 ## Limitações atuais
 
-- **Só PostgreSQL pelo pgx v5.** MySQL, MongoDB e `database/sql` com outro driver não são
-  suportados: a Verificação `db_spans` conta os spans desses bancos como ignorados.
+- **Só PostgreSQL pelo pgx v5.** MySQL e MongoDB não são suportados pelo hook nem pelos detectores
+  de N+1 e de índice faltando: a Verificação `db_spans` conta os spans desses bancos como
+  ignorados. Com PostgreSQL por `database/sql` com outro driver, o hook não anota os spans, e a
+  causa fica sem a linha e o commit. A divisão do tempo (abaixo) conta qualquer span de banco.
 - **Planos de execução só na avaliação.** O detector de índice faltando precisa dos planos das
   queries, e hoje só o `rootline-eval record` os gera (`plans.jsonl`, passado com `--plans`).
   Capturá-los contra um banco de teste está no roadmap.
 - **Só latência.** A v1 analisa regressões de latência. A Verificação `error_rate` mostra a taxa de
   erro das duas versões, mas o Rootline não busca a causa de uma regressão de erro.
-- **Detectores de N+1 e de índice faltando.** Outras causas (pool esgotado, lock, chamada externa
-  lenta) dão `Inconclusive`, e as Verificações dizem o que foi olhado.
+- **Quatro causas.** O Rootline reconhece N+1, índice faltando, `slow_call` e `added_work`. As
+  duas últimas vêm da divisão do tempo da regressão por dependência, que aparece nas evidências
+  ([ADR-0031](adr/0031-detector-de-forma-do-trace.md)). Elas precisam da `--baseline-version`, de
+  uma regressão de latência (com pelo menos 30 traces da operação em cada versão) e de uma média
+  por trace que suba 5 ms ou mais. Só saem como causa quando não há N+1 nem índice faltando:
+  - **`slow_call`** (chamada externa mais lenta): uma dependência HTTP ou RPC explica pelo menos
+    80% da diferença, o tempo por chamada pelo menos dobra e a fração dos traces em que ela
+    aparece varia menos de 25 pontos. A localização é o handler da rota, aproximada, **sem linha
+    nem commit**, porque o hook não anota esse span. A chamada precisa estar instrumentada (por
+    exemplo, com `otelhttp.NewTransport`); sem span de cliente, o tempo dela conta como tempo
+    próprio.
+  - **`added_work`** (trabalho a mais por requisição): a fração dos traces em que uma dependência
+    aparece sobe pelo menos 25 pontos (um cache que passou a furar, por exemplo) e ela explica pelo
+    menos 80% da diferença. Em banco com o hook, a localização é a função da aplicação comum às
+    queries que passaram a aparecer, com a linha; o commit sai quando algum entre as duas versões
+    mudou uma função da pilha. Sem a pilha, ou sem função comum, a localização cai no handler da
+    rota, sem linha nem commit.
+- **O que continua `Inconclusive`.** Banco mais lento sem N+1 nem índice faltando reconhecido
+  (lock, pool esgotado ou, sem planos, o próprio índice) e tempo próprio maior (CPU, lock ou
+  espera sem instrumentação). A origem está fora do trace, e a Verificação `trace_shape` diz para
+  onde o tempo foi. Um aumento diluído entre várias dependências também não dá causa.
 - **As receitas não têm teste de CI.** Uma mudança no otelsql ou no plugin do GORM só aparece na
   próxima rodada do laboratório.

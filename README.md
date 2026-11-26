@@ -7,7 +7,7 @@ função e a linha onde ela está e o commit que a introduziu.
 
 ## Comece aqui
 
-1. Instale o CLI (precisa de Go): `go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.1.0`.
+1. Instale o CLI (precisa de Go): `go install github.com/MarcosAAlbanoJunior/rootline/cmd/rootline@v0.2.0`.
 2. Instale o hook no seu serviço e grave as duas versões com o Collector, seguindo o
    [guia de instrumentação](docs/guia-instrumentacao.md). Ele cobre também o serviço que roda em
    contêiner.
@@ -17,8 +17,9 @@ função e a linha onde ela está e o commit que a introduziu.
    escolher, e o que fazer quando o `analyze` dá `inconclusive`, está em
    [escolher a operação](docs/guia-instrumentacao.md#escolher-a-operação).
 4. Analise: `rootline analyze --traces traces.jsonl --repo . --service <seu-servico> --operation "GET /rota" --bad-version <sha-ruim> --baseline-version <sha-bom>`.
-5. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. A seção **Checks**
-   diz o que foi verificado, o que foi pulado e, com uma dica, o que fazer. As
+5. Leia o Resultado: a causa com função, arquivo:linha e commit, ou `Inconclusive`. Algumas causas
+   saem só com o handler da rota, aproximado, sem linha nem commit. A seção **Checks** diz o que foi
+   verificado, o que foi pulado e, com uma dica, o que fazer. As
    [limitações atuais](docs/guia-instrumentacao.md#limitações-atuais) estão no guia.
 
 Para experimentar sem um serviço seu, com este repositório clonado e Docker, grave um cenário do
