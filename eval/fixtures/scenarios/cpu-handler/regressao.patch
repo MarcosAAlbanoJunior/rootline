@@ -1,0 +1,35 @@
+diff --git a/demo-app/internal/orders/handler.go b/demo-app/internal/orders/handler.go
+index ee15037..05f2f01 100644
+--- a/demo-app/internal/orders/handler.go
++++ b/demo-app/internal/orders/handler.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"log/slog"
+ 	"net/http"
++	"regexp"
+ 	"strconv"
+ )
+ 
+@@ -40,7 +41,7 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
+ 		http.Error(w, "internal error", http.StatusInternalServerError)
+ 		return
+ 	}
+-	out = withoutRetired(retired, out)
++	out = withoutRetired(regexp.MustCompile(retiredPattern()), out)
+ 	w.Header().Set("Content-Type", "application/json")
+ 	_ = json.NewEncoder(w).Encode(out)
+ }
+diff --git a/demo-app/internal/orders/sku.go b/demo-app/internal/orders/sku.go
+index 7d96fc5..8709a6d 100644
+--- a/demo-app/internal/orders/sku.go
++++ b/demo-app/internal/orders/sku.go
+@@ -18,9 +18,6 @@ func retiredPattern() string {
+ 	return "^(?:" + strings.Join(parts, "|") + ")$"
+ }
+ 
+-// retired is compiled once: the pattern is large.
+-var retired = regexp.MustCompile(retiredPattern())
+-
+ // withoutRetired drops the items whose SKU the catalog retired.
+ func withoutRetired(re *regexp.Regexp, orders []OrderWithItems) []OrderWithItems {
+ 	for i := range orders {

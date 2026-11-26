@@ -1,59 +1,79 @@
 {
   "detectors_only": {
     "cause": {
-      "hits": 7,
-      "total": 7
+      "hits": 8,
+      "total": 8
     },
     "line": {
-      "hits": 7,
-      "total": 7
+      "hits": 8,
+      "total": 8
     },
     "commit": {
-      "hits": 7,
-      "total": 7
+      "hits": 8,
+      "total": 8
     },
     "strict": {
-      "hits": 7,
-      "total": 7
+      "hits": 8,
+      "total": 8
     },
     "line_levels": {
       "level_1": 7,
       "level_2": 0,
-      "none": 0
+      "none": 1
     },
     "detector_false_positive": {
       "hits": 0,
       "total": 2
     },
+    "hallucination": {
+      "hits": 0,
+      "total": 1
+    },
+    "unwarranted_abstention": {
+      "hits": 0,
+      "total": 7
+    },
     "scenarios": {
+      "cpu-handler": {
+        "cause": true,
+        "line": true,
+        "commit": true,
+        "strict": true,
+        "line_level": 0,
+        "hallucination": false
+      },
       "idx-basic": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
         "line_level": 1,
-        "false_positive": false
+        "false_positive": false,
+        "unwarranted_abstention": false
       },
       "n1-basic": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
-        "line_level": 1
+        "line_level": 1,
+        "unwarranted_abstention": false
       },
       "n1-errgroup": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
-        "line_level": 1
+        "line_level": 1,
+        "unwarranted_abstention": false
       },
       "n1-helper": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
-        "line_level": 1
+        "line_level": 1,
+        "unwarranted_abstention": false
       },
       "n1-pagination": {
         "cause": true,
@@ -61,21 +81,24 @@
         "commit": true,
         "strict": true,
         "line_level": 1,
-        "false_positive": false
+        "false_positive": false,
+        "unwarranted_abstention": false
       },
       "n1-rangefunc": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
-        "line_level": 1
+        "line_level": 1,
+        "unwarranted_abstention": false
       },
       "n1-workpool": {
         "cause": true,
         "line": true,
         "commit": true,
         "strict": true,
-        "line_level": 1
+        "line_level": 1,
+        "unwarranted_abstention": false
       }
     }
   }

@@ -193,6 +193,8 @@ func printScore(w io.Writer, s, base evaluation.Score, hasBaseline bool) {
 	if s.DetectorFalsePositive != nil {
 		fmt.Fprintf(w, "  Falso positivo de detector: %s\n", *s.DetectorFalsePositive)
 	}
+	// Side by side: one without the other rewards always answering inconclusive (ADR-0026).
+	fmt.Fprintf(w, "  Alucinação: %s | Abstenção indevida: %s\n", s.Hallucination, s.UnwarrantedAbstention)
 	names := make([]string, 0, len(s.Scenarios))
 	for name := range s.Scenarios {
 		names = append(names, name)
@@ -203,6 +205,12 @@ func printScore(w io.Writer, s, base evaluation.Score, hasBaseline bool) {
 		suffix := ""
 		if o.FalsePositive != nil {
 			suffix = " FalsoPositivo=" + yesOrNo(*o.FalsePositive)
+		}
+		if o.Hallucination != nil {
+			suffix += " Alucinação=" + yesOrNo(*o.Hallucination)
+		}
+		if o.UnwarrantedAbstention != nil && *o.UnwarrantedAbstention {
+			suffix += " AbstençãoIndevida=sim"
 		}
 		if _, known := base.Scenarios[name]; hasBaseline && !known {
 			suffix += " (novo)"

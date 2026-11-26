@@ -18,8 +18,15 @@ var perfect = evaluation.Found{
 	HasLocation: true, File: "demo-app/internal/orders/service.go", Line: 42, CommitSHA: "sha-reg",
 }
 
+// answerOnly keeps the metrics of the answer, without the hallucination and abstention flags,
+// which have tests of their own.
+func answerOnly(o evaluation.Outcome) evaluation.Outcome {
+	o.Hallucination, o.UnwarrantedAbstention = nil, nil
+	return o
+}
+
 func TestScoreOne_AllHitsIsStrict(t *testing.T) {
-	got := evaluation.ScoreOne(key, perfect, labels)
+	got := answerOnly(evaluation.ScoreOne(key, perfect, labels))
 	if want := (evaluation.Outcome{Cause: true, Line: true, Commit: true, Strict: true}); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -45,7 +52,7 @@ func TestScoreOne_Misses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := perfect
 			tc.mutate(&f)
-			got := evaluation.ScoreOne(key, f, labels)
+			got := answerOnly(evaluation.ScoreOne(key, f, labels))
 			if got != tc.want {
 				t.Fatalf("got %+v, want %+v", got, tc.want)
 			}

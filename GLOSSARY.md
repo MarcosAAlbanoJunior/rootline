@@ -5,7 +5,7 @@ Cada termo indica o identificador usado no código (código em inglês, docs em 
 ## Abstenção indevida
 Resultado "inconclusivo" num cenário cujo gabarito tem resposta. Reportada sempre ao lado da
 métrica de alucinação.
-- No código: `UnwarrantedAbstention`
+- No código: `UnwarrantedAbstention` (`unwarranted_abstention` no placar)
 
 
 ## Alvo da causa
@@ -160,8 +160,9 @@ faltando usa o frame mais interno, onde a query é emitida, sem regra do loop ([
 
 ## Métrica de alucinação
 Taxa de resultados que inventam um commit (no cenário sem commit) ou uma causa (no cenário sem
-causa visível). Reportada separada do acerto.
-- No código: `HallucinationRate`
+causa visível). Reportada separada do acerto e sempre ao lado da abstenção indevida. O cenário sem
+causa visível tem o gabarito `inconclusive`.
+- No código: `Hallucination` (`hallucination` no placar), `CauseInconclusive`
 
 ## Modo de análise
 Como o resultado é produzido: **só detectores** (melhor candidata pelo score), **pipeline**

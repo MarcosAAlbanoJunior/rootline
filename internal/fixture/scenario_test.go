@@ -220,3 +220,22 @@ func TestLoadScenario_NPlusOneAnswerWithATargetIsAnError(t *testing.T) {
 		t.Fatalf("err = %v, want an error citing answer.target (n_plus_one has no target)", err)
 	}
 }
+
+func TestLoadScenario_InconclusiveAnswerHasNoFunctionFileMarkerOrCommit(t *testing.T) {
+	sc, err := loadScenarioJSON(t, scenarioJSONWithAnswer(`{"cause":"inconclusive"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Answer.Cause != fixture.CauseInconclusive {
+		t.Fatalf("cause = %q, want inconclusive", sc.Answer.Cause)
+	}
+}
+
+func TestLoadScenario_InconclusiveAnswerWithALocationIsAnErrorCitingTheField(t *testing.T) {
+	for _, field := range []string{"function", "file", "marker", "commit", "target"} {
+		_, err := loadScenarioJSON(t, scenarioJSONWithAnswer(`{"cause":"inconclusive","`+field+`":"x"}`))
+		if err == nil || !strings.Contains(err.Error(), "answer."+field) {
+			t.Errorf("%s: err = %v, want an error citing answer.%s", field, err, field)
+		}
+	}
+}

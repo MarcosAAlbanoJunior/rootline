@@ -30,9 +30,27 @@ type ScenarioAnswer struct {
 	Commit   string `json:"commit"`
 }
 
+// CauseInconclusive is the answer of a scenario with no cause the Rootline can see: the expected
+// Result is "inconclusive", and a cause in it counts in the hallucination metric (ADR-0004,
+// ADR-0026). Such an answer has no function, file, marker, target or commit.
+const CauseInconclusive = "inconclusive"
+
 // causeHasTarget says, per cause type, whether it has a target (ADR-0026): the table of a missing
 // index; nothing in an N+1. A new type declares one or the other here.
-var causeHasTarget = map[string]bool{"n_plus_one": false, "missing_index": true}
+var causeHasTarget = map[string]bool{"n_plus_one": false, "missing_index": true, CauseInconclusive: false}
+
+// validateInconclusive refuses any location or commit in an inconclusive answer: there is nothing
+// to point at.
+func (a ScenarioAnswer) validateInconclusive() error {
+	for _, f := range []struct{ name, value string }{
+		{"function", a.Function}, {"file", a.File}, {"marker", a.Marker}, {"commit", a.Commit}, {"target", a.Target},
+	} {
+		if f.value != "" {
+			return fmt.Errorf("answer.%s must be empty for an inconclusive answer", f.name)
+		}
+	}
+	return nil
+}
 
 // validateTarget requires the target of a type that has one and refuses it in a type that has none.
 func (a ScenarioAnswer) validateTarget() error {
@@ -121,8 +139,14 @@ func LoadScenario(dir string) (Scenario, error) {
 	if raw.Load != nil {
 		sc.Load = *raw.Load
 	}
-	if sc.Name == "" || len(sc.Commits) == 0 || sc.Answer.Marker == "" || sc.Answer.File == "" {
+	located := sc.Answer.Cause != CauseInconclusive
+	if sc.Name == "" || len(sc.Commits) == 0 || (located && (sc.Answer.Marker == "" || sc.Answer.File == "")) {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s is incomplete", dir)
+	}
+	if !located {
+		if err := sc.Answer.validateInconclusive(); err != nil {
+			return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: %w", dir, err)
+		}
 	}
 	if strings.TrimSpace(sc.Assumption) == "" {
 		return Scenario{}, fmt.Errorf("fixture: scenario.json in %s: assumption is empty (declare which assumption the scenario breaks)", dir)
