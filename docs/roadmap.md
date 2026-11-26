@@ -28,11 +28,11 @@ Itens que mudam a arquitetura passam por `/grill-me` e ganham um ADR antes dos t
 
 ## Médio prazo: ampliar o que o Rootline enxerga
 
-4. **Detector "o que mudou na forma do trace".** Compara as duas versões e aponta o span novo, o
-   span que ficou mais lento ou o tempo próprio do handler que cresceu. Cobriria app-05 (query nova
-   por requisição), app-08 (chamada HTTP lenta) e daria pista no app-10 (tempo dentro do handler).
-   É a aposta com mais retorno. Precisa de ADR: muda o modelo de detectores e deve tratar traces
-   cortados no timeout.
+4. **Detector de forma do trace** ([ADR-0031](adr/0031-detector-de-forma-do-trace.md)). Divide a
+   diferença da média por trace entre as dependências e o tempo próprio, e sai como evidência em todo
+   Resultado com Regressão de latência. Só promove a Candidata dois mecanismos: a chamada externa mais
+   lenta (app-08) e o trabalho a mais por requisição (app-05, cache que passou a furar). Banco mais
+   lento e tempo próprio maior ficam como pista (app-06, app-09, app-10, app-04).
 5. **Sintoma de erro.** Hoje o sintoma é só latência (ADR-0005). Cobriria app-07 e app-09. Precisa
    de ADR.
 6. **Cobertura de bancos.** Hook de chamador para `database/sql` (app-04, app-09), spans do MongoDB

@@ -162,3 +162,46 @@ type SymptomStatsEvidence struct {
 	DurationMsMedian   float64 `json:"duration_ms_median"`
 	DBQuerySpansMedian int     `json:"db_query_spans_median"`
 }
+
+// TimeBreakdownEvidence is the time breakdown of the operation (ADR-0031): the growth of the mean
+// per trace split between the dependencies and the own time, the one that grew most first. The
+// means leave out the traces at the ceiling and the slowest 5% of each version (MeanTraces of
+// Traces); the presences count all the Traces.
+type TimeBreakdownEvidence struct {
+	ID                 string           `json:"id"`
+	Kind               string           `json:"kind"`
+	BaselineMeanMs     float64          `json:"baseline_mean_ms"`
+	BadMeanMs          float64          `json:"bad_mean_ms"`
+	BaselineTraces     int              `json:"baseline_traces"`
+	BadTraces          int              `json:"bad_traces"`
+	BaselineMeanTraces int              `json:"baseline_mean_traces"`
+	BadMeanTraces      int              `json:"bad_mean_traces"`
+	Dependencies       []DependencyTime `json:"dependencies"`
+}
+
+// DependencyTime is one row of the time breakdown. Explained is the share of the growth of the mean
+// that the dependency accounts for, capped at 1.
+type DependencyTime struct {
+	Dependency string              `json:"dependency"`
+	Kind       string              `json:"kind"`
+	Baseline   VersionTime         `json:"baseline"`
+	Bad        VersionTime         `json:"bad"`
+	Explained  float64             `json:"explained"`
+	Operations []OperationPresence `json:"operations"`
+}
+
+// VersionTime is what one dependency took in one version.
+type VersionTime struct {
+	MeanMs        float64 `json:"mean_ms"`
+	Presence      float64 `json:"presence"`
+	CallsPerTrace float64 `json:"calls_per_trace"`
+	MsPerCall     float64 `json:"ms_per_call"`
+}
+
+// OperationPresence is an operation inside a dependency and the fraction of the traces where it
+// appears in each version.
+type OperationPresence struct {
+	Operation        string  `json:"operation"`
+	BaselinePresence float64 `json:"baseline_presence"`
+	BadPresence      float64 `json:"bad_presence"`
+}

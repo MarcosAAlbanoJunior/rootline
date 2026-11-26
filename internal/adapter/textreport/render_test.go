@@ -85,11 +85,32 @@ func TestRender_InconclusiveResultListsSkippedChecksFirst(t *testing.T) {
 		Status: analysis.StatusInconclusive, Candidates: []analysis.Candidate{},
 		Evidence: []any{
 			analysis.SymptomStatsEvidence{ID: "E1", Kind: "symptom_stats", Version: badSHA, Traces: 40, DurationMsMedian: 950, DBQuerySpansMedian: 0},
+			analysis.TimeBreakdownEvidence{ID: "E2", Kind: "time_breakdown", BaselineMeanMs: 4.4, BadMeanMs: 145.6,
+				BaselineTraces: 40, BadTraces: 40, BaselineMeanTraces: 38, BadMeanTraces: 38,
+				Dependencies: []analysis.DependencyTime{
+					{Dependency: "http:moderation:8090", Kind: "http", Explained: 0.99,
+						Baseline:   analysis.VersionTime{MeanMs: 3.5, Presence: 1, CallsPerTrace: 1, MsPerCall: 3.5},
+						Bad:        analysis.VersionTime{MeanMs: 143.3, Presence: 1, CallsPerTrace: 1, MsPerCall: 143.3},
+						Operations: []analysis.OperationPresence{{Operation: "POST", BaselinePresence: 1, BadPresence: 1}}},
+					{Dependency: "db:postgresql", Kind: "db", Explained: 0.01,
+						Baseline: analysis.VersionTime{MeanMs: 0.6, Presence: 1, CallsPerTrace: 2, MsPerCall: 0.3},
+						Bad:      analysis.VersionTime{MeanMs: 0.7, Presence: 1, CallsPerTrace: 2, MsPerCall: 0.35},
+						Operations: []analysis.OperationPresence{
+							{Operation: "SELECT id FROM rooms WHERE id = $1", BaselinePresence: 1, BadPresence: 1},
+							{Operation: "INSERT INTO messages (room_id, body) VALUES ($1, $2)", BaselinePresence: 1, BadPresence: 1},
+							{Operation: "SELECT 1", BaselinePresence: 0.5, BadPresence: 0.5},
+							{Operation: "SELECT 2", BaselinePresence: 0.1, BadPresence: 0.1},
+						}},
+					{Dependency: "own_time", Kind: "own", Explained: 0, Operations: []analysis.OperationPresence{},
+						Baseline: analysis.VersionTime{MeanMs: 0.3, Presence: 1},
+						Bad:      analysis.VersionTime{MeanMs: 0.3, Presence: 1}},
+				}},
 		},
 		Observations: []string{},
 		Checks: []analysis.Check{
 			{ID: "n_plus_one", Status: analysis.CheckSkipped, Reason: "no database query spans in the 40 analyzed traces", Hint: "See the db_spans check."},
 			{ID: "missing_index", Status: analysis.CheckSkipped, Reason: "no query plans", Hint: "Plans come from the evaluation today."},
+			{ID: "trace_shape", Status: analysis.CheckRan, Reason: "mean per trace 4.4 → 145.6 ms (+141.2 ms, 38 and 38 traces); dominant: http:moderation:8090, 99% of the difference; nothing promoted"},
 			{ID: "commit_correlation", Status: analysis.CheckNotApplicable, Reason: "no candidate to correlate"},
 		},
 		Warnings: []string{"no traces of the operation in baseline version 2222222"},
@@ -178,5 +199,20 @@ func TestRenderSymptoms_UnevenLoadWithoutRegressionSaysNoneRegressed(t *testing.
 	}
 	if strings.Contains(text, "do not tell which operation regressed") {
 		t.Errorf("no operation regressed: the text must not imply one did:\n%s", text)
+	}
+}
+
+func TestRender_ADependencyThatShrankALittleIsNotMinusZeroPercent(t *testing.T) {
+	var got bytes.Buffer
+	err := textreport.Render(&got, analysis.Result{Symptom: symptom(), Evidence: []any{
+		analysis.TimeBreakdownEvidence{ID: "E1", Kind: "time_breakdown", Dependencies: []analysis.DependencyTime{
+			{Dependency: "db:postgresql", Kind: "db", Explained: -0.001},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := got.String(); strings.Contains(s, "-0%") || !strings.Contains(s, "explains 0%") {
+		t.Errorf("want explains 0%%:\n%s", s)
 	}
 }

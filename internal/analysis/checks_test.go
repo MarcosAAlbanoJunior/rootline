@@ -229,7 +229,7 @@ func TestChecks_ComeInAFixedOrder(t *testing.T) {
 	for _, c := range list(m, "checks") {
 		ids = append(ids, obj(t, c)["id"].(string))
 	}
-	want := "[symptom_regression error_rate truncated_traces caller_hook db_spans n_plus_one missing_index commit_correlation]"
+	want := "[symptom_regression error_rate truncated_traces caller_hook db_spans n_plus_one missing_index trace_shape commit_correlation]"
 	if fmt.Sprint(ids) != want {
 		t.Errorf("checks = %v, want %s", ids, want)
 	}
