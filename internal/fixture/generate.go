@@ -114,7 +114,7 @@ func Generate(opts Options) (Generated, error) {
 				return Generated{}, err
 			}
 		}
-		if c.Label == sc.Answer.Commit {
+		if sc.Answer.Cause != CauseInconclusive && c.Label == sc.Answer.Commit {
 			line, err := stripMarker(filepath.Join(repo, filepath.FromSlash(sc.Answer.File)), sc.Answer.Marker)
 			if err != nil {
 				return Generated{}, err
@@ -146,7 +146,7 @@ func Generate(opts Options) (Generated, error) {
 			bad = i
 		}
 	}
-	if !foundAnswer {
+	if !foundAnswer && sc.Answer.Cause != CauseInconclusive {
 		return Generated{}, fmt.Errorf("fixture: no commit labeled %q in scenario %s", sc.Answer.Commit, sc.Name)
 	}
 	for j, d := range sc.Distractors {

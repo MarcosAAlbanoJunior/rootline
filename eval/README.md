@@ -25,6 +25,7 @@ frames acima da query, em outro pacote, quebra a suposição de que o loop está
 | `n1-workpool` | As queries repetidas têm o mesmo pai direto: cada uma roda num job de um pool de trabalho, sob um span `workpool.job` próprio, e o detector as agrupa pelo pai efetivo ([ADR-0020](../docs/adr/0020-pai-efetivo-com-filhos-do-cliente-de-banco.md)). |
 | `n1-pagination` | Repetição de query em loop é sempre N+1: a mesma função lê os itens do cliente paginados por keyset com `LIMIT 4` (8 queries, 4 × 7 e 2 linhas), que passa nos limiares do N+1, e só a regressão (itens por pedido num `for range`) é N+1. A leitura paginada é o primeiro distrator ([ADR-0021](../docs/adr/0021-forma-de-paginacao-nao-e-n-mais-1.md), [ADR-0022](../docs/adr/0022-distrator-declarado-no-cenario.md)). |
 | `idx-basic` | A causa de uma regressão está em queries repetidas: cada query roda uma vez por requisição, e a nova lê `payments` (50 mil linhas) por `order_id`, coluna sem índice. O índice faltando é reconhecido só pelo plano gravado, e a Causa exige a tabela como alvo. Na mesma rota, um total com `amount > $1` também faz Seq Scan, mas pouco seletivo (cerca de 1/3), e é o distrator ([ADR-0023](../docs/adr/0023-indice-faltando-pelo-plano-de-execucao.md), [ADR-0024](../docs/adr/0024-localizacao-por-tipo-de-causa.md), [ADR-0026](../docs/adr/0026-pontuacao-com-alvo-da-causa.md)). |
+| `cpu-handler` | Toda regressão vira Causa: o handler passa a compilar por chamada uma regex de 4 mil alternativas, que antes era compilada uma vez. O Tempo próprio do handler cresce e domina a divisão do tempo, mas tempo próprio maior não é mecanismo promovido. O gabarito é `inconclusive`, e o cenário conta na métrica de alucinação ([ADR-0031](../docs/adr/0031-detector-de-forma-do-trace.md)). |
 
 O `n1-workpool` é o primeiro cenário com carga multirrota: além da rota do sintoma
 (`/customers/{id}/shipments`, peso 3), a carga passa pela rota saudável `/customers/{id}/dashboard`
@@ -152,3 +153,9 @@ bin/rootline-eval score --recordings /tmp/recordings --placar eval/placar.json -
 O placar guarda, em cada modo, o resultado de cada cenário (`scenarios`) e o agregado derivado deles.
 Uma métrica que era acerto e virou erro em qualquer cenário é regressão, mesmo que o agregado não mude.
 Cenário novo não é regressão; cenário que sumiu é.
+
+Um cenário sem causa visível tem o gabarito `{"cause": "inconclusive"}`, sem função, arquivo, marcador
+nem commit. Nele, Causa, Linha, Commit e Estrito acertam quando o Resultado não traz causa. A
+Alucinação conta os cenários sem causa ou sem commit em que o Resultado inventou um; a Abstenção
+indevida conta os cenários com causa em que o Resultado foi inconclusivo. As duas aparecem lado a lado,
+e o portão reprova quando qualquer uma sobe ([ADR-0026](../docs/adr/0026-pontuacao-com-alvo-da-causa.md)).

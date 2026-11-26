@@ -1,0 +1,12 @@
+{
+  "name": "cpu-handler",
+  "assumption": "toda regressão vira Causa: aqui o handler passa a compilar por chamada uma regex de 4 mil alternativas, que antes era compilada uma vez; o tempo próprio do handler cresce, mas tempo próprio maior não é mecanismo promovido (ADR-0031), e o Resultado esperado é inconclusivo",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "inconclusive"
+  },
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/orders", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"}
+}

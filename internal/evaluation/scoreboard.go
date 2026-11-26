@@ -33,11 +33,13 @@ func WriteScoreboard(w io.Writer, sb Scoreboard) error {
 // aggregate did not change, and a scenario missing from the current run gives
 // "<mode>.<scenario>". A scenario that is new in the current run and a change of line level only
 // are not regressions. For the detector false positive, less is better: a scenario whose
-// false_positive went from false to true gives "<mode>.<scenario>.false_positive" (ADR-0022).
+// false_positive went from false to true gives "<mode>.<scenario>.false_positive" (ADR-0022), and so
+// do the hallucination and the unwarranted abstention (ADR-0026).
 //
 // A baseline mode without scenarios (older scoreboard) uses the aggregate rule: a metric whose
-// hits dropped while the total stayed the same, or a detector false positive whose hits rose
-// while the total stayed the same. Metrics with different denominators are not compared.
+// hits dropped while the total stayed the same, or a detector false positive, hallucination or
+// unwarranted abstention whose hits rose while the total stayed the same. Metrics with different
+// denominators are not compared.
 func Regressions(baseline, current Scoreboard) []string {
 	var out []string
 	for _, mode := range sortedKeys(baseline) {
@@ -73,8 +75,17 @@ func scenarioRegressions(mode string, base, cur map[string]Outcome) []string {
 				out = append(out, mode+"."+name+"."+metricNames[i])
 			}
 		}
-		if b.FalsePositive != nil && !*b.FalsePositive && c.FalsePositive != nil && *c.FalsePositive {
-			out = append(out, mode+"."+name+".false_positive")
+		for _, pair := range []struct {
+			metric string
+			b, c   *bool
+		}{
+			{"false_positive", b.FalsePositive, c.FalsePositive},
+			{"hallucination", b.Hallucination, c.Hallucination},
+			{"unwarranted_abstention", b.UnwarrantedAbstention, c.UnwarrantedAbstention},
+		} {
+			if pair.b != nil && !*pair.b && pair.c != nil && *pair.c {
+				out = append(out, mode+"."+name+"."+pair.metric)
+			}
 		}
 	}
 	return out
@@ -89,6 +100,14 @@ func aggregateRegressions(mode string, base, cur Score) []string {
 	}
 	if b, c := base.DetectorFalsePositive, cur.DetectorFalsePositive; b != nil && c != nil && b.Total == c.Total && c.Hits > b.Hits {
 		out = append(out, mode+".detector_false_positive")
+	}
+	for _, pair := range []struct {
+		metric string
+		b, c   Metric
+	}{{"hallucination", base.Hallucination, cur.Hallucination}, {"unwarranted_abstention", base.UnwarrantedAbstention, cur.UnwarrantedAbstention}} {
+		if pair.b.Total == pair.c.Total && pair.c.Hits > pair.b.Hits {
+			out = append(out, mode+"."+pair.metric)
+		}
 	}
 	return out
 }

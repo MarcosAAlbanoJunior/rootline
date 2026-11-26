@@ -1,0 +1,54 @@
+diff --git a/demo-app/internal/orders/handler.go b/demo-app/internal/orders/handler.go
+index 18e6b2d..ee15037 100644
+--- a/demo-app/internal/orders/handler.go
++++ b/demo-app/internal/orders/handler.go
+@@ -40,6 +40,7 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
+ 		http.Error(w, "internal error", http.StatusInternalServerError)
+ 		return
+ 	}
++	out = withoutRetired(retired, out)
+ 	w.Header().Set("Content-Type", "application/json")
+ 	_ = json.NewEncoder(w).Encode(out)
+ }
+diff --git a/demo-app/internal/orders/sku.go b/demo-app/internal/orders/sku.go
+new file mode 100644
+index 0000000..7d96fc5
+--- /dev/null
++++ b/demo-app/internal/orders/sku.go
+@@ -0,0 +1,36 @@
++package orders
++
++import (
++	"fmt"
++	"regexp"
++	"strings"
++)
++
++// retiredCodes is how many SKU codes the catalog has retired.
++const retiredCodes = 4000
++
++// retiredPattern matches the SKUs the catalog retired, one alternative per retired code.
++func retiredPattern() string {
++	parts := make([]string, retiredCodes)
++	for i := range parts {
++		parts[i] = fmt.Sprintf("SKU-%05d-[A-Z]{2}", i*7)
++	}
++	return "^(?:" + strings.Join(parts, "|") + ")$"
++}
++
++// retired is compiled once: the pattern is large.
++var retired = regexp.MustCompile(retiredPattern())
++
++// withoutRetired drops the items whose SKU the catalog retired.
++func withoutRetired(re *regexp.Regexp, orders []OrderWithItems) []OrderWithItems {
++	for i := range orders {
++		kept := orders[i].Items[:0]
++		for _, it := range orders[i].Items {
++			if !re.MatchString(it.SKU) {
++				kept = append(kept, it)
++			}
++		}
++		orders[i].Items = kept
++	}
++	return orders
++}

@@ -85,8 +85,8 @@ func TestScoreOne_DistractorsDoNotChangeTheOtherMetrics(t *testing.T) {
 		return g
 	}()} {
 		t.Run(name, func(t *testing.T) {
-			with := evaluation.ScoreOne(keyWithDistractor, f, labels)
-			without := evaluation.ScoreOne(key, f, labels)
+			with := answerOnly(evaluation.ScoreOne(keyWithDistractor, f, labels))
+			without := answerOnly(evaluation.ScoreOne(key, f, labels))
 			with.FalsePositive = nil
 			if with != without {
 				t.Fatalf("with distractor %+v, without %+v", with, without)

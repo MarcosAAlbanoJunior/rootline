@@ -309,3 +309,23 @@ func TestGenerate_PreparationPatchThatDoesNotApplyIsAnErrorNamingThePatch(t *tes
 		t.Fatalf("err = %v, want an error naming %q", err, "preparacao.patch")
 	}
 }
+
+func TestGenerate_InconclusiveScenarioHasAnAnswerKeyWithoutLocationOrCommit(t *testing.T) {
+	source, scenario := setup(t)
+	write(t, filepath.Join(scenario, "regressao.patch"), strings.ReplaceAll(patch(), marker, ""))
+	b, _ := json.Marshal(map[string]any{
+		"name": "cpu", "assumption": "a slower handler is not a cause the trace shows",
+		"commits": []map[string]string{{"label": "referencia"}, {"label": "regressao", "patch": "regressao.patch"}},
+		"answer":  map[string]string{"cause": "inconclusive"},
+		"symptom": map[string]string{"service": "demo-app", "method": "GET", "route": "/customers/{id}/orders",
+			"route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+	})
+	write(t, filepath.Join(scenario, "scenario.json"), string(b))
+
+	g := generate(t, source, scenario)
+
+	want := fixture.AnswerKey{Cause: "inconclusive"}
+	if !reflect.DeepEqual(g.AnswerKey, want) {
+		t.Errorf("answer key = %+v, want %+v", g.AnswerKey, want)
+	}
+}
