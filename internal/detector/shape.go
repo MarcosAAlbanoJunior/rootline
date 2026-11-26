@@ -377,9 +377,14 @@ func TraceShapeCheck(b Breakdown, promoted *Candidate) Check {
 	c := Check{ID: CheckTraceShape, Status: CheckRan}
 	means := fmt.Sprintf("mean per trace %.1f → %.1f ms (%+.1f ms, %d and %d traces)",
 		b.Baseline.MeanMs, b.Bad.MeanMs, b.DeltaMs(), b.Baseline.MeanTraces, b.Bad.MeanTraces)
-	if b.DeltaMs() < MinShapeDeltaMs {
+	if b.DeltaMs() <= 0 {
 		c.Reason = fmt.Sprintf("%s: the mean did not follow the p50, so no mechanism is promoted", means)
 		c.Hint = "A bimodal latency can move the mean against the p50; the time breakdown is still in the evidence."
+		return c
+	}
+	if b.DeltaMs() < MinShapeDeltaMs {
+		c.Reason = fmt.Sprintf("%s: the mean grew less than the %g ms guard, so no mechanism is promoted", means, MinShapeDeltaMs)
+		c.Hint = "A difference this small is not attributed to a mechanism; the time breakdown is still in the evidence."
 		return c
 	}
 	if promoted != nil {

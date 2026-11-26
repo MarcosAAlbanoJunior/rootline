@@ -223,3 +223,29 @@ func TestTraceShapeCheck_NamesThePromotedSlowCall(t *testing.T) {
 		t.Errorf("reason = %q, want it to contain %q", got.Reason, want)
 	}
 }
+
+func TestTraceShapeCheck_CitesTheGuardWhenTheMeanGrewLessThanIt(t *testing.T) {
+	for _, delta := range []float64{0.5, 4.7} {
+		got := detector.TraceShapeCheck(grew(delta, addedWork(0.5, 1, 1)), nil)
+
+		if want := "the mean grew less than the 5 ms guard, so no mechanism is promoted"; !strings.Contains(got.Reason, want) {
+			t.Errorf("delta %v ms: reason = %q, want it to contain %q", delta, got.Reason, want)
+		}
+		if strings.Contains(got.Hint, "bimodal") {
+			t.Errorf("delta %v ms: hint = %q, want no mention of a bimodal latency", delta, got.Hint)
+		}
+	}
+}
+
+func TestTraceShapeCheck_SaysTheMeanDidNotFollowTheP50WhenItDidNotGrow(t *testing.T) {
+	for _, delta := range []float64{0, -20} {
+		got := detector.TraceShapeCheck(grew(delta, addedWork(0.5, 1, 1)), nil)
+
+		if want := "the mean did not follow the p50"; !strings.Contains(got.Reason, want) {
+			t.Errorf("delta %v ms: reason = %q, want it to contain %q", delta, got.Reason, want)
+		}
+		if !strings.Contains(got.Hint, "bimodal") {
+			t.Errorf("delta %v ms: hint = %q, want it to mention a bimodal latency", delta, got.Hint)
+		}
+	}
+}
