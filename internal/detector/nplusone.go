@@ -77,7 +77,10 @@ type Candidate struct {
 	Type string
 	// Target is what the cause points at besides the function, when the type has one and it comes
 	// from a structured field (ADR-0026): the table in a missing index; empty in an N+1.
-	Target              string
+	Target string
+	// Dependency is the row of the time breakdown behind a trace shape candidate; Target is its
+	// name. It is zero in other types.
+	Dependency          Dependency
 	Plan                *PlanFinding
 	Query               string
 	Location            *Location

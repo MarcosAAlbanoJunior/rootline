@@ -36,8 +36,9 @@ type ScenarioAnswer struct {
 const CauseInconclusive = "inconclusive"
 
 // causeHasTarget says, per cause type, whether it has a target (ADR-0026): the table of a missing
-// index; nothing in an N+1. A new type declares one or the other here.
-var causeHasTarget = map[string]bool{"n_plus_one": false, "missing_index": true, CauseInconclusive: false}
+// index, the dependency of an added_work (ADR-0031); nothing in an N+1. A new type declares one or
+// the other here.
+var causeHasTarget = map[string]bool{"n_plus_one": false, "missing_index": true, "added_work": true, CauseInconclusive: false}
 
 // validateInconclusive refuses any location or commit in an inconclusive answer: there is nothing
 // to point at.

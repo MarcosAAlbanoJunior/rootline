@@ -6,35 +6,47 @@ import (
 	"github.com/MarcosAAlbanoJunior/rootline/internal/detector"
 )
 
-// traceShape is the time breakdown of an operation with a latency regression (ADR-0031) and its
-// check. Without a latency regression there is no breakdown, and the check says why.
-func traceShape(s Symptom, good, bad []versionTrace) (*detector.Breakdown, Check) {
+// shapeRun is the time breakdown of an operation with a latency regression (ADR-0031) and the bad
+// traces it read. Without a latency regression there is no breakdown, and check says why.
+type shapeRun struct {
+	breakdown *detector.Breakdown
+	bad       []detector.VersionTrace
+	check     Check
+}
+
+func traceShape(s Symptom, good, bad []versionTrace) shapeRun {
 	c := Check{ID: detector.CheckTraceShape, Status: CheckNotApplicable}
 	switch {
 	case len(bad) == 0:
 		c.Reason = "no traces of the operation in the bad version"
-		return nil, c
+		return shapeRun{check: c}
 	case s.BaselineVersion == "":
 		c.Reason = "no baseline version: there is no time to split"
-		return nil, c
+		return shapeRun{check: c}
 	case len(good) == 0:
 		c.Reason = "no traces of the operation in the baseline version"
-		return nil, c
+		return shapeRun{check: c}
 	}
 	r := Regress(sampleOf(good), sampleOf(bad))
 	if !r.Enough {
 		c.Reason = fmt.Sprintf("fewer than %d traces in a version: no latency regression can be told, see symptom_regression", MinRegressionSample)
-		return nil, c
+		return shapeRun{check: c}
 	}
 	if !r.Latency {
 		c.Reason = "no latency regression: the time breakdown only splits a slowdown"
-		return nil, c
+		return shapeRun{check: c}
 	}
 	// The ceiling is a property of the bad version (ADR-0030); the baseline is taken as it is.
 	_, badKept := splitAtCeiling(bad)
-	b := detector.TimeBreakdown(shapeTraces(good), shapeTraces(badKept))
-	return &b, fromDetector(detector.TraceShapeCheck(b))
+	run := shapeRun{bad: shapeTraces(badKept)}
+	b := detector.TimeBreakdown(shapeTraces(good), run.bad)
+	run.breakdown = &b
+	return run
 }
+
+// isShape says whether a cause type comes from the trace shape. Those candidates always come after
+// the specific ones (N+1, missing index), whatever the score (ADR-0031).
+func isShape(typ string) bool { return typ == detector.TypeAddedWork || typ == detector.TypeSlowCall }
 
 func shapeTraces(vts []versionTrace) []detector.VersionTrace {
 	out := make([]detector.VersionTrace, len(vts))

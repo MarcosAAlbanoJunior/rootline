@@ -38,7 +38,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	regCheck, errCheck := regressionChecks(s, bad, good)
 	ceiling, complete := splitAtCeiling(bad)
 	hookCheck, dbCheck := dbChecks(bad)
-	breakdown, shapeCheck := traceShape(s, good, bad)
+	shape := traceShape(s, good, bad)
 	res.Checks = append(res.Checks, regCheck, errCheck, truncatedCheck(ceiling, len(bad)-len(complete)), hookCheck, dbCheck)
 	if len(bad) == 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("no traces of %s %s %s in version %s",
@@ -46,7 +46,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		res.Checks = append(res.Checks,
 			fromDetector(detector.NPlusOneCheck(nil, nil, nil, 0)),
 			fromDetector(detector.MissingIndexCheck(nil, plans != nil, nil, nil)),
-			shapeCheck,
+			shape.check,
 			Check{ID: CheckCommitCorrelation, Status: CheckNotApplicable, Reason: "no traces of the operation in the bad version"})
 		return res, nil
 	}
@@ -76,6 +76,14 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		cands = append(cands, idxCands...)
 	}
 	res.Checks = append(res.Checks, fromDetector(detector.MissingIndexCheck(spansOf(bad), plans != nil, idxCands, skipped)))
+	if shape.breakdown != nil {
+		var promoted *detector.Candidate
+		if c, ok := detector.PromoteShape(env{idx: idx, git: git}, s.BadVersion, *shape.breakdown, shape.bad); ok {
+			cands = append(cands, c)
+			promoted = &c
+		}
+		shape.check = fromDetector(detector.TraceShapeCheck(*shape.breakdown, promoted))
+	}
 
 	corr := correlationCheck(git, s)
 	correlate := corr.Status == "" // still undecided: the versions are in the repository
@@ -106,18 +114,36 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		}
 		scored = append(scored, sc)
 	}
-	sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	// The commit bonus reorders only within a class: a shape candidate never passes a specific one.
+	sort.SliceStable(scored, func(i, j int) bool {
+		if si, sj := isShape(scored[i].c.Type), isShape(scored[j].c.Type); si != sj {
+			return sj
+		}
+		return scored[i].score > scored[j].score
+	})
 
 	nextEvidence := 0
 	newID := func() string { nextEvidence++; return fmt.Sprintf("E%d", nextEvidence) }
+	breakdownID := ""
+	breakdownEvidenceID := func() string {
+		if breakdownID == "" {
+			breakdownID = newID()
+			res.Evidence = append(res.Evidence, breakdownEvidence(breakdownID, *shape.breakdown))
+		}
+		return breakdownID
+	}
 	for i, sc := range scored {
 		cand := Candidate{
 			ID: fmt.Sprintf("C%d", i+1), Type: sc.c.Type, Target: sc.c.Target, Score: sc.score,
 			Confidence: sc.c.Confidence, Location: sc.loc, Evidence: []string{},
 		}
-		id := newID()
-		res.Evidence = append(res.Evidence, causeEvidence(id, sc.c))
-		cand.Evidence = append(cand.Evidence, id)
+		if isShape(sc.c.Type) {
+			cand.Evidence = append(cand.Evidence, breakdownEvidenceID())
+		} else {
+			id := newID()
+			res.Evidence = append(res.Evidence, causeEvidence(id, sc.c))
+			cand.Evidence = append(cand.Evidence, id)
+		}
 		if sc.touch != nil {
 			st := StackTouchEvidence{
 				ID: newID(), Kind: "stack_touch", Commit: sc.touch.Commit,
@@ -133,10 +159,10 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	if len(good) > 0 {
 		res.Evidence = append(res.Evidence, statsEvidence(newID(), s.BaselineVersion, good))
 	}
-	if breakdown != nil {
-		res.Evidence = append(res.Evidence, breakdownEvidence(newID(), *breakdown))
+	if shape.breakdown != nil {
+		breakdownEvidenceID()
 	}
-	res.Checks = append(res.Checks, shapeCheck)
+	res.Checks = append(res.Checks, shape.check)
 
 	res.Checks = append(res.Checks, finishCorrelation(corr, s, res.Candidates, scored))
 
@@ -243,7 +269,11 @@ type scoredCandidate struct {
 // levelTwo tries the approximate route-to-handler location when level 1 is unavailable. It records
 // why in the observations and warnings; it returns nil when level 2 is not possible either.
 func levelTwo(idx CodeIndex, s Symptom, c detector.Candidate, res *Result) *Location {
-	why := fmt.Sprintf("level 1 unavailable for query %q (%s)", c.Query, c.LocationReason)
+	subject := fmt.Sprintf("query %q", c.Query)
+	if isShape(c.Type) {
+		subject = "dependency " + c.Target
+	}
+	why := fmt.Sprintf("level 1 unavailable for %s (%s)", subject, c.LocationReason)
 	res.Observations = append(res.Observations, "location unavailable: "+why)
 	rl, ok := idx.(RouteLocator)
 	if !ok {
