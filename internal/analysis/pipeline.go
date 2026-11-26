@@ -35,7 +35,7 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 	if s.BaselineVersion != "" {
 		good = tracesOf(byTrace, s, s.BaselineVersion)
 	}
-	regCheck, errCheck := regressionChecks(s, bad, good)
+	regCheck, errCheck, noLatency := regressionChecks(s, bad, good)
 	ceiling, complete := splitAtCeiling(bad)
 	hookCheck, dbCheck := dbChecks(bad)
 	shape := traceShape(s, good, bad)
@@ -178,6 +178,9 @@ func Analyze(src TraceSource, idx CodeIndex, git Git, plans Explainer, s Symptom
 		}
 		res.Cause = cause
 		res.Status = StatusCauseFound
+		if noLatency {
+			res.Warnings = append(res.Warnings, warningCauseWithoutRegression)
+		}
 	}
 	return res, nil
 }

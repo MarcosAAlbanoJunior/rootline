@@ -69,7 +69,7 @@ só latência (ADR-0005), e a Regressão de erro só é relatada.
 - O status e a confiança não mudam. A confiança de uma Candidata mede a evidência dela, não a
   latência, e a Causa pode estar certa numa operação que só piorou um pouco.
 - Sem Regressão de latência, a `symptom_regression` diz qual limiar faltou em cada ramo, com a
-  razão e a diferença. Por exemplo: `p50 1.30x (+2.4 ms): under 1.5x and under 2x; p95 0.49x: under 2x`.
+  razão e a diferença. Por exemplo: `p50 1.30x (+2.42 ms): under 1.5x and under 2x; p95 0.48x (-15.96 ms): under 2x`.
 - Quando a `symptom_regression` rodou, não há Regressão de latência e há Causa, o Resultado ganha um
   aviso em `warnings`. O aviso diz que os detectores leem a forma dos traces, não a latência: a causa
   está no código da operação, mas pode não explicar a lentidão procurada, e o `rootline symptoms`
