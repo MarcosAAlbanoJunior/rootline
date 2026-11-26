@@ -1,0 +1,38 @@
+diff --git a/demo-app/internal/activity/client.go b/demo-app/internal/activity/client.go
+index b87b279..efe9f8e 100644
+--- a/demo-app/internal/activity/client.go
++++ b/demo-app/internal/activity/client.go
+@@ -12,7 +12,7 @@ import (
+ )
+ 
+ // planURL is the endpoint of the plan service.
+-const planURL = "http://stub:8090/v1/plan"
++const planURL = "http://stub:8090/v2/plan"
+ 
+ // Plan is the commercial plan of a customer.
+ type Plan struct {
+diff --git a/demo-app/internal/activity/service.go b/demo-app/internal/activity/service.go
+index bf8c652..dc823dd 100644
+--- a/demo-app/internal/activity/service.go
++++ b/demo-app/internal/activity/service.go
+@@ -32,9 +32,9 @@ func NewService(store Store) *Service {
+ 	return &Service{store: store}
+ }
+ 
+-// Report returns the customer's activity up to the end of today, from the cache when it has it.
++// Report returns the customer's activity up to now, from the cache when it has it.
+ func (s *Service) Report(ctx context.Context, customerID int64) (Report, error) {
+-	until := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
++	until := time.Now().UTC()
+ 	key := fmt.Sprintf("%d:%d", customerID, until.UnixNano())
+ 	if cached, ok := s.cache.Load(key); ok {
+ 		return cached.(Report), nil
+@@ -50,7 +50,7 @@ func (s *Service) Report(ctx context.Context, customerID int64) (Report, error)
+ func (s *Service) compute(ctx context.Context, customerID int64, until time.Time) (Report, error) {
+ 	var report Report
+ 	var err error
+-	if report.ByKind, err = s.store.ByKind(ctx, customerID, until); err != nil {
++	if report.ByKind, err = s.store.ByKind(ctx, customerID, until); err != nil { // rootline:answer
+ 		return Report{}, err
+ 	}
+ 	if report.ByMonth, err = s.store.ByMonth(ctx, customerID, until); err != nil {

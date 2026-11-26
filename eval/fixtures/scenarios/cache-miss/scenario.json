@@ -1,0 +1,25 @@
+{
+  "name": "cache-miss",
+  "assumption": "trabalho a mais aparece como mais queries por trace: a data final do relatório deixa de ser truncada no dia e a chave do cache em memória passa a mudar a cada requisição; as queries por trace com cache furado são as mesmas de antes, e só a presença do banco sobe. Na mesma rota, uma chamada externa que roda em toda requisição fica um pouco mais lenta, e não é causa (ADR-0031)",
+  "commits": [
+    {"label": "referencia", "patch": "preparacao.patch"},
+    {"label": "regressao", "patch": "regressao.patch"}
+  ],
+  "answer": {
+    "cause": "added_work",
+    "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/activity.(*Service).compute",
+    "target": "postgresql",
+    "file": "demo-app/internal/activity/service.go",
+    "marker": " // rootline:answer",
+    "commit": "regressao"
+  },
+  "distractors": [
+    {
+      "function": "github.com/MarcosAAlbanoJunior/rootline/demo-app/internal/activity.(*Handler).activity",
+      "file": "demo-app/internal/activity/handler.go",
+      "marker": " // rootline:distractor"
+    }
+  ],
+  "symptom": {"service": "demo-app", "method": "GET", "route": "/customers/{id}/activity", "route_source": "span_name", "bad": "regressao", "baseline": "referencia"},
+  "load": {"requests": 200, "rate_per_second": 50, "routes": [{"route": "/customers/{id}/activity", "weight": 1}]}
+}
