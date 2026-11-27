@@ -1,7 +1,7 @@
 ---
 id: ADR-0032
 title: Marcar como Regressão o p50 que dobra com 2 ms a mais e explicar a Causa numa operação sem Regressão
-status: Aceito
+status: Substituído por ADR-0038
 date: 2026-11-25
 summary: Substitui o 0030 e mantém o resto dele (teto, sumiço, symptoms, regressão generalizada, Carga desigual). A latência regride também com p50 ≥ 2x e +2 ms, com o p50 da versão ruim em pelo menos 3 ms. A symptom_regression diz qual limiar faltou, e uma Causa sem Regressão de latência ganha um aviso. Validado em 19 gravações das rodadas 2 e 3 e no placar.
 modules: [analysis, cmd/rootline, adapter/textreport]

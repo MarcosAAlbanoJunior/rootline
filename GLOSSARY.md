@@ -16,6 +16,12 @@ Causa junto com o tipo e a função. Um alvo que só existe em texto (ex.: a col
 fica como evidência, fora da métrica.
 - Relacionados: [Índice faltando](#índice-faltando), [Gabarito](#gabarito), [ADR-0026](docs/adr/0026-pontuacao-com-alvo-da-causa.md)
 
+## Amostragem declarada
+A política de amostragem do backend de traces, informada na configuração do Rootline: `none`, `head`
+com a taxa, ou `tail`. Com `tail`, a latência não é comparada e só sai o sinal estrutural (ADR-0034).
+- Evitar: "amostragem detectada"; o Rootline não descobre a política pelos dados.
+- Relacionados: [Regressão](#regressão), [Sinal antecipado](#sinal-antecipado)
+
 ## Candidata
 Hipótese de causa raiz emitida por um detector na fase 1, com suas evidências e um score determinístico.
 - Evitar: "suspeita", "hipótese" (solto), "achado" (achado é o resultado final).
@@ -23,9 +29,10 @@ Hipótese de causa raiz emitida por um detector na fase 1, com suas evidências 
 - No código: `Candidate`
 
 ## Carga desigual
-Quando as duas gravações não tiveram carga comparável: a mediana da razão de n entre as operações
-com amostra mínima (pelo menos 3) fica fora de [0,8; 1,25] (ADR-0032). Pode ser carga diferente ou requisições
-presas. O `rootline symptoms` não sugere operação.
+Quando as duas versões não tiveram carga comparável: a mediana da razão de taxa (traces por minuto
+da janela de cada versão) entre as operações com amostra mínima (pelo menos 3) fica fora de
+[0,8; 1,25] (ADR-0038). Pode ser carga diferente ou requisições presas. O `rootline symptoms` não
+sugere operação.
 - Relacionados: [Regressão](#regressão), [Gravação](#gravação)
 
 ## Cenário
@@ -197,6 +204,13 @@ o marcador do gabarito.
 - Relacionados: [Cenário](#cenário), `eval/README.md`
 - No código: `ScenarioCommit.Patch` do primeiro commit
 
+## Perfil de versão
+O que o Rootline guarda de uma versão × operação de entrada no modo watch, no lugar dos traces
+brutos: n, erros, uma amostra de até 1000 durações, taxa, janela, divisão do tempo e Candidatas de
+N+1. Serve de referência quando os traces da versão já expiraram no backend (ADR-0040).
+- Evitar: "baseline salvo", "snapshot".
+- Relacionados: [Referência](#referência), [Divisão do tempo](#divisão-do-tempo)
+
 ## Placar
 Resultado do modo só-detectores na `main`, versionado em `eval/placar.json`; portão dos PRs.
 - Evitar: "resultado de referência" (colide com [Referência](#referência)).
@@ -216,6 +230,11 @@ Os frames de uma pilha de chamadas que pertencem ao módulo do serviço analisad
 bibliotecas. Capturada pelo hook de chamador.
 - No código: `AppStack`
 
+## Prazo sem amostra
+O tempo depois do deploy (48 h por padrão) em que o watch desiste de esperar a amostra mínima e
+publica um resumo das operações que ficaram sem comparação (ADR-0035).
+- Relacionados: [Regressão](#regressão)
+
 ## Presença
 A fração dos traces de uma operação (fora do teto) em que uma dependência aparece. É diferente das
 chamadas por trace: chamadas a mais no mesmo trace são território do N+1.
@@ -234,7 +253,7 @@ com amostra mínima) ou ausente. Define o início do intervalo do diff.
 - No código: `Baseline`
 
 ## Regressão
-Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0032):
+Piora de uma operação de entrada entre a referência e a versão ruim, por uma regra única (ADR-0032, mantida no ADR-0038):
 amostra mínima nas duas versões e latência (p50 ou p95) ou taxa de erro acima dos limiares. Um p50
 que dobra com 2 ms a mais já conta, se a versão ruim ficar em pelo menos 3 ms, para não perder um N+1
 numa operação rápida sem marcar a que continua extremamente rápida. Tem
@@ -247,6 +266,13 @@ Quando quase todas as operações de entrada do serviço regridem juntas (≥ 75
 recurso compartilhado saturado. Só há operação sugerida quando uma delas destoa, sempre como
 sugestão, nunca como origem.
 - Relacionados: [Regressão](#regressão)
+
+## Sinal antecipado
+Uma Candidata de N+1 publicada pelo watch antes da amostra mínima: aparece em pelo menos 3 traces da
+versão nova, não existe na referência e está num local tocado por um commit do deploy. Sai como não
+confirmada e depois é confirmada ou mantida como Causa sem Regressão, nunca retirada (ADR-0036).
+- Evitar: "alerta precoce", "N+1 provisório".
+- Relacionados: [Candidata](#candidata), [Regressão](#regressão), [Correlação](#correlação)
 
 ## Sintoma
 Entrada da análise: serviço + operação de entrada + janela ruim (de versão única, ou filtrada por

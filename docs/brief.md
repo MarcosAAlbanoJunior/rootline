@@ -35,7 +35,8 @@ decisões documentadas (ADRs), testes sérios e números medidos.
 ## Fora do escopo da v1
 - Java e Node (o design precisa permitir isso depois via OTel + índice de código por linguagem, mas sem implementar agora)
 - UI elaborada (CLI + saída em Markdown/JSON bastam)
-- Ações automáticas de correção, abertura de PR ou qualquer escrita em sistemas externos
+- Ações automáticas de correção, abertura de PR ou qualquer escrita em sistemas externos, exceto a
+  publicação do Resultado ([ADR-0039](adr/0039-publicar-o-resultado-em-destino-externo.md))
 - Multi-tenant, autenticação, deploy em nuvem
 
 ## Stack

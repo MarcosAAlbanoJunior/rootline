@@ -1,7 +1,7 @@
 ---
 id: PROP-2026-11-26-watch
 title: Rootline automático por deploy, lendo os traces do backend de observabilidade
-status: Proposta
+status: Decidida (ADR-0033 a ADR-0040)
 summary: Tirar os passos manuais. Um rootline watch lê os traces do Tempo ou do Jaeger, percebe cada versão nova, compara cada operação com a versão anterior assim que houver amostra e publica a Causa. Nada roda no CI nem em cada pod. Guarda só um perfil agregado por versão; os traces brutos ficam no backend. Muda o ADR-0008 e o escopo do brief, e exige ADRs antes dos tickets.
 modules: [analysis, adapter, cmd/rootline]
 ---
@@ -278,6 +278,21 @@ continua só com a stdlib. As mudanças ficam nas portas, nos adapters e no `cmd
 
 ## Decisões que precisam de ADR
 
+As decisões abaixo foram fechadas em 2026-11-26:
+
+| Decisão | ADR | Status |
+|---|---|---|
+| 1. Fonte de traces por backend | [ADR-0033](adr/0033-traces-do-tempo-por-consulta-em-duas-camadas.md) (consulta, Tempo, duas camadas) e [ADR-0034](adr/0034-amostragem-declarada-na-configuracao.md) (amostragem) | Aceitos; o 0033 depois do [spike do Tempo](spikes/2026-11-26-tempo-como-fonte.md) |
+| 2. Modo watch e gatilho por amostra | [ADR-0035](adr/0035-modo-watch-com-gatilho-por-amostra.md) | Aceito |
+| 3. Sinal estrutural antecipado | [ADR-0036](adr/0036-sinal-estrutural-antecipado.md) | Aceito |
+| 4. Referência no modo watch | [ADR-0037](adr/0037-referencia-no-modo-watch.md) | Aceito |
+| 5. Carga desigual por taxa | [ADR-0038](adr/0038-carga-desigual-por-taxa.md) (substitui o 0032) | Aceito |
+| 6. Escrita em sistema externo | [ADR-0039](adr/0039-publicar-o-resultado-em-destino-externo.md) (muda o brief) | Aceito |
+| 7. Perfil agregado por versão | [ADR-0040](adr/0040-perfil-por-versao.md) | Aceito |
+
+A lista original, como foi proposta:
+
+
 1. **Fonte de traces por backend.** Substitui ou complementa o ADR-0008: Tempo, Jaeger ou os dois,
    formato da consulta, limite de traces e o que acontece quando o backend amostra.
 2. **Modo watch e gatilho por amostra.** Quem detecta a versão nova, a regra do gatilho por operação,
@@ -319,7 +334,8 @@ continua só com a stdlib. As mudanças ficam nas portas, nos adapters e no `cmd
 Cada fatia entrega algo usável e passa pelo gate. A ordem tira primeiro o risco maior (a API do
 backend).
 
-0. **Spike do backend.** Subir Tempo e Jaeger com o demo-app, gravar um cenário e medir quantos
+0. **Spike do backend** (feito em 2026-11-26 só com o Tempo:
+   [nota](spikes/2026-11-26-tempo-como-fonte.md)). Subir Tempo e Jaeger com o demo-app, gravar um cenário e medir quantos
    traces dá para buscar por versão e operação, e em quanto tempo. Sai uma nota em `docs/spikes/` e a
    ADR 1.
 1. **`analyze` e `symptoms` lendo do backend.** Porta `TraceSource` com consulta, adapter do backend
@@ -329,7 +345,8 @@ backend).
    imprime o Resultado em JSON. Já dá para rodar num job pós-deploy.
 3. **`rootline watch`.** Laço contínuo, detecção da versão nova pelos traces, gatilho por amostra,
    prazo, estado persistido e o perfil agregado de cada versão.
-4. **Publicadores.** Slack e GitHub, atrás da porta de publicação.
+4. **Publicadores.** Comentário no commit culpado no GitHub primeiro, Slack depois, atrás da porta
+   de publicação (ADR-0039).
 5. **Sinal estrutural antecipado.**
 6. **Canary.** Referência pela outra versão ativa.
 

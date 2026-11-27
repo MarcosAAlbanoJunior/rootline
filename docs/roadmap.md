@@ -20,6 +20,8 @@ Um `rootline watch` que lê os traces do Tempo ou do Jaeger, percebe cada versã
 operação com a anterior assim que houver amostra e publica a Causa, sem passos manuais e sem rodar
 no CI. Proposta completa, com as decisões que pedem ADR e o plano em fatias:
 [proximo-passo-watch.md](proximo-passo-watch.md).
+As decisões estão nos ADR-0033 a ADR-0040. O spike do Tempo (fatia 0) está feito; o próximo passo é `/to-tickets` com as
+fatias 1 a 6.
 
 ## Visão: levar a produção para o momento em que o código é escrito
 
@@ -87,6 +89,10 @@ no caminho de uma rota com 4 mil req/min; a linha 42 passa a chamar `ItemsByOrde
 que, em produção, roda 24 vezes por requisição; estimativa de +24 queries por requisição". Junta o
 hook (função → query, com contagens reais), o `go/ast` (o loop no diff) e os traces (cardinalidade e
 tráfego). Nenhum linter sabe quantas vezes o loop roda, e nenhum APM olha o diff.
+
+A revisão **prevê** o impacto a partir do diff e do Perfil de versão da base, e não sobe a versão
+do PR para medir: medir seria o job `placar` a cada PR, lento e com carga de laboratório. Vem
+depois do watch, porque o perfil que ela consulta é o dele.
 
 É a aposta mais difícil: a estimativa pode errar. Por isso ela segue as regras do `analyze`: toda
 afirmação cita a evidência, e sem evidência o comentário diz que não sabe.
